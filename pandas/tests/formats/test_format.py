@@ -2820,10 +2820,10 @@ c  10  11  12  13  14\
                 self.assertEqual(df.to_latex(), f.read())
 
         # test with utf-8 without encoding option
-        if compat.PY3:  # python3 default encoding is utf-8
+        if compat.PY3:  # python3: pandas default encoding is utf-8
             with tm.ensure_clean('test.tex') as path:
                 df.to_latex(path)
-                with codecs.open(path, 'r') as f:
+                with codecs.open(path, 'r', encoding='utf-8') as f:
                     self.assertEqual(df.to_latex(), f.read())
         else:
             # python2 default encoding is ascii, so an error should be raised
@@ -4047,6 +4047,14 @@ class TestEngFormatter(tm.TestCase):
         self.assertTrue('NaN' in result)
         self.reset_display_options()
 
+    def test_inf(self):
+        # Issue #11981
+
+        formatter = fmt.EngFormatter(accuracy=1, use_eng_prefix=True)
+        result = formatter(np.inf)
+        self.assertEqual(result, u('inf'))
+
+
 def _three_digit_exp():
     return '%.4g' % 1.7e8 == '1.7e+008'
 
@@ -4295,7 +4303,7 @@ class TestDatetime64Formatter(tm.TestCase):
         formatter = fmt.Datetime64Formatter(x, formatter=format_func)
         result = formatter.get_result()
         self.assertEqual(result, ['2016-01', '2016-02'])
-                       
+
     def test_datetime64formatter_hoursecond(self):
 
         x = Series(pd.to_datetime(['10:10:10.100', '12:12:12.120'],

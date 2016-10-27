@@ -29,6 +29,7 @@ import pandas.compat.openpyxl_compat as openpyxl_compat
 from warnings import warn
 from distutils.version import LooseVersion
 from pandas.util.decorators import Appender
+from textwrap import fill
 
 __all__ = ["read_excel", "ExcelWriter", "ExcelFile"]
 
@@ -86,6 +87,16 @@ converters : dict, default None
     either be integers or column labels, values are functions that take one
     input argument, the Excel cell content, and return the transformed
     content.
+true_values : list, default None
+    Values to consider as True
+
+    .. versionadded:: 0.19.0
+
+false_values : list, default None
+    Values to consider as False
+
+    .. versionadded:: 0.19.0
+
 parse_cols : int or list, default None
     * If None then parse all columns,
     * If int then indicates last column to be parsed
@@ -97,7 +108,7 @@ squeeze : boolean, default False
 na_values : scalar, str, list-like, or dict, default None
     Additional strings to recognize as NA/NaN. If dict passed, specific
     per-column NA values. By default the following values are interpreted
-    as NaN: '""" + "', '".join(sorted(_NA_VALUES)) + """'.
+    as NaN: '""" + fill("', '".join(sorted(_NA_VALUES)), 70) + """'.
 thousands : str, default None
     Thousands separator for parsing string columns to numeric.  Note that
     this parameter is only necessary for columns stored as TEXT in Excel,
@@ -173,7 +184,8 @@ def read_excel(io, sheetname=0, header=0, skiprows=None, skip_footer=0,
                index_col=None, names=None, parse_cols=None, parse_dates=False,
                date_parser=None, na_values=None, thousands=None,
                convert_float=True, has_index_names=None, converters=None,
-               engine=None, squeeze=False, **kwds):
+               true_values=None, false_values=None, engine=None, squeeze=False,
+               **kwds):
 
     if not isinstance(io, ExcelFile):
         io = ExcelFile(io, engine=engine)
@@ -184,7 +196,8 @@ def read_excel(io, sheetname=0, header=0, skiprows=None, skip_footer=0,
         date_parser=date_parser, na_values=na_values, thousands=thousands,
         convert_float=convert_float, has_index_names=has_index_names,
         skip_footer=skip_footer, converters=converters,
-        squeeze=squeeze, **kwds)
+        true_values=true_values, false_values=false_values, squeeze=squeeze,
+        **kwds)
 
 
 class ExcelFile(object):
@@ -242,7 +255,8 @@ class ExcelFile(object):
               names=None, index_col=None, parse_cols=None, parse_dates=False,
               date_parser=None, na_values=None, thousands=None,
               convert_float=True, has_index_names=None,
-              converters=None, squeeze=False, **kwds):
+              converters=None, true_values=None, false_values=None,
+              squeeze=False, **kwds):
         """
         Parse specified sheet(s) into a DataFrame
 
@@ -261,6 +275,8 @@ class ExcelFile(object):
                                  skip_footer=skip_footer,
                                  convert_float=convert_float,
                                  converters=converters,
+                                 true_values=true_values,
+                                 false_values=false_values,
                                  squeeze=squeeze,
                                  **kwds)
 
@@ -301,7 +317,8 @@ class ExcelFile(object):
                      skip_footer=0, index_col=None, has_index_names=None,
                      parse_cols=None, parse_dates=False, date_parser=None,
                      na_values=None, thousands=None, convert_float=True,
-                     verbose=False, squeeze=False, **kwds):
+                     true_values=None, false_values=None, verbose=False,
+                     squeeze=False, **kwds):
 
         skipfooter = kwds.pop('skipfooter', None)
         if skipfooter is not None:
@@ -479,6 +496,8 @@ class ExcelFile(object):
                                     thousands=thousands,
                                     parse_dates=parse_dates,
                                     date_parser=date_parser,
+                                    true_values=true_values,
+                                    false_values=false_values,
                                     skiprows=skiprows,
                                     skipfooter=skip_footer,
                                     squeeze=squeeze,

@@ -16,7 +16,6 @@ from pandas.tseries.tools import to_datetime
 import pandas.tseries.period as period
 import pandas.tseries.offsets as offsets
 
-import pandas.core.datetools as datetools
 import pandas as pd
 import numpy as np
 from numpy.random import randn
@@ -24,7 +23,8 @@ from pandas.compat import range, lrange, lmap, zip, text_type, PY3, iteritems
 from pandas.compat.numpy import np_datetime64_compat
 
 from pandas import (Series, DataFrame,
-                    _np_version_under1p9, _np_version_under1p12)
+                    _np_version_under1p9, _np_version_under1p10,
+                    _np_version_under1p12)
 from pandas import tslib
 import pandas.util.testing as tm
 
@@ -2910,9 +2910,9 @@ class TestPeriodIndex(tm.TestCase):
         tm.assert_index_equal(result.index, index.asfreq('D', how='start'))
 
     def test_badinput(self):
-        self.assertRaises(datetools.DateParseError, Period, '1/1/-2000', 'A')
-        # self.assertRaises(datetools.DateParseError, Period, '-2000', 'A')
-        # self.assertRaises(datetools.DateParseError, Period, '0', 'A')
+        self.assertRaises(ValueError, Period, '-2000', 'A')
+        self.assertRaises(tslib.DateParseError, Period, '0', 'A')
+        self.assertRaises(tslib.DateParseError, Period, '1/1/-2000', 'A')
 
     def test_negative_ordinals(self):
         Period(ordinal=-1000, freq='A')
@@ -4178,7 +4178,7 @@ class TestPeriodIndexSeriesMethods(tm.TestCase):
                 with tm.assertRaises(TypeError):
                     np.add(obj, ng)
 
-                if _np_version_under1p9:
+                if _np_version_under1p10:
                     self.assertIs(np.add(ng, obj), NotImplemented)
                 else:
                     with tm.assertRaises(TypeError):
@@ -4187,7 +4187,7 @@ class TestPeriodIndexSeriesMethods(tm.TestCase):
                 with tm.assertRaises(TypeError):
                     np.subtract(obj, ng)
 
-                if _np_version_under1p9:
+                if _np_version_under1p10:
                     self.assertIs(np.subtract(ng, obj), NotImplemented)
                 else:
                     with tm.assertRaises(TypeError):
@@ -4294,7 +4294,7 @@ class TestPeriodIndexSeriesMethods(tm.TestCase):
         tm.assert_index_equal(result, exp)
 
         result = np.subtract(pd.Period('2012-01', freq='M'), idx)
-        if _np_version_under1p9:
+        if _np_version_under1p10:
             self.assertIs(result, NotImplemented)
         else:
             tm.assert_index_equal(result, exp)

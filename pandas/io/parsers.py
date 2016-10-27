@@ -8,6 +8,7 @@ import csv
 import sys
 import warnings
 import datetime
+from textwrap import fill
 
 import numpy as np
 
@@ -133,7 +134,7 @@ nrows : int, default None
 na_values : scalar, str, list-like, or dict, default None
     Additional strings to recognize as NA/NaN. If dict passed, specific
     per-column NA values.  By default the following values are interpreted as
-    NaN: `'""" + "'`, `'".join(sorted(_NA_VALUES)) + """'`.
+    NaN: '""" + fill("', '".join(sorted(_NA_VALUES)), 70) + """'`.
 keep_default_na : bool, default True
     If na_values are specified and keep_default_na is False the default NaN
     values are overridden, otherwise they're appended to.
@@ -800,17 +801,22 @@ class TextFileReader(BaseIterator):
                                   " different from '\s+' are"\
                                   " interpreted as regex)"
                 engine = 'python'
-
-        elif len(sep.encode(encoding)) > 1:
-            if engine not in ('python', 'python-fwf'):
-                fallback_reason = "the separator encoded in {encoding}"\
-                                  " is > 1 char long, and the 'c' engine"\
-                                  " does not support such separators".format(
-                                      encoding=encoding)
-                engine = 'python'
         elif delim_whitespace:
             if 'python' in engine:
                 result['delimiter'] = '\s+'
+        elif sep is not None:
+            encodeable = True
+            try:
+                if len(sep.encode(encoding)) > 1:
+                    encodeable = False
+            except UnicodeDecodeError:
+                encodeable = False
+            if not encodeable and engine not in ('python', 'python-fwf'):
+                fallback_reason = "the separator encoded in {encoding}" \
+                                  " is > 1 char long, and the 'c' engine" \
+                                  " does not support such separators".format(
+                                      encoding=encoding)
+                engine = 'python'
 
         if fallback_reason and engine_specified:
             raise ValueError(fallback_reason)
@@ -1753,6 +1759,9 @@ class PythonParser(ParserBase):
         self.delimiter = kwds['delimiter']
 
         self.quotechar = kwds['quotechar']
+        if isinstance(self.quotechar, compat.text_type):
+            self.quotechar = str(self.quotechar)
+
         self.escapechar = kwds['escapechar']
         self.doublequote = kwds['doublequote']
         self.skipinitialspace = kwds['skipinitialspace']

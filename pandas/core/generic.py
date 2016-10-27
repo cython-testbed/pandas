@@ -20,6 +20,7 @@ from pandas.types.common import (_coerce_to_dtype,
                                  is_numeric_dtype,
                                  is_datetime64_dtype,
                                  is_timedelta64_dtype,
+                                 is_datetime64tz_dtype,
                                  is_list_like,
                                  is_dict_like,
                                  is_re_compilable)
@@ -42,9 +43,9 @@ from pandas.core.internals import BlockManager
 import pandas.core.algorithms as algos
 import pandas.core.common as com
 import pandas.core.missing as missing
-import pandas.core.datetools as datetools
 from pandas.formats.printing import pprint_thing
 from pandas.formats.format import format_percentiles
+from pandas.tseries.frequencies import to_offset
 from pandas import compat
 from pandas.compat.numpy import function as nv
 from pandas.compat import (map, zip, lrange, string_types,
@@ -3734,10 +3735,10 @@ class NDFrame(PandasObject):
         if not self.index.is_monotonic:
             raise ValueError("asof requires a sorted index")
 
-        if isinstance(self, ABCSeries):
+        is_series = isinstance(self, ABCSeries)
+        if is_series:
             if subset is not None:
                 raise ValueError("subset is not valid for Series")
-            nulls = self.isnull()
         elif self.ndim > 2:
             raise NotImplementedError("asof is not implemented "
                                       "for {type}".format(type(self)))
@@ -3746,9 +3747,9 @@ class NDFrame(PandasObject):
                 subset = self.columns
             if not is_list_like(subset):
                 subset = [subset]
-            nulls = self[subset].isnull().any(1)
 
-        if not is_list_like(where):
+        is_list = is_list_like(where)
+        if not is_list:
             start = self.index[0]
             if isinstance(self.index, PeriodIndex):
                 where = Period(where, freq=self.index.freq).ordinal
@@ -3757,16 +3758,26 @@ class NDFrame(PandasObject):
             if where < start:
                 return np.nan
 
-            loc = self.index.searchsorted(where, side='right')
-            if loc > 0:
-                loc -= 1
-            while nulls[loc] and loc > 0:
-                loc -= 1
-            return self.iloc[loc]
+            # It's always much faster to use a *while* loop here for
+            # Series than pre-computing all the NAs. However a
+            # *while* loop is extremely expensive for DataFrame
+            # so we later pre-compute all the NAs and use the same
+            # code path whether *where* is a scalar or list.
+            # See PR: https://github.com/pandas-dev/pandas/pull/14476
+            if is_series:
+                loc = self.index.searchsorted(where, side='right')
+                if loc > 0:
+                    loc -= 1
+
+                values = self._values
+                while loc > 0 and isnull(values[loc]):
+                    loc -= 1
+                return values[loc]
 
         if not isinstance(where, Index):
-            where = Index(where)
+            where = Index(where) if is_list else Index([where])
 
+        nulls = self.isnull() if is_series else self[subset].isnull().any(1)
         locs = self.index.asof_locs(where, ~(nulls.values))
 
         # mask the missing
@@ -3774,7 +3785,7 @@ class NDFrame(PandasObject):
         data = self.take(locs, is_copy=False)
         data.index = where
         data.loc[missing] = np.nan
-        return data
+        return data if is_list else data.iloc[-1]
 
     # ----------------------------------------------------------------------
     # Action Methods
@@ -4438,13 +4449,23 @@ class NDFrame(PandasObject):
             left = left.fillna(axis=fill_axis, method=method, limit=limit)
             right = right.fillna(axis=fill_axis, method=method, limit=limit)
 
+        # if DatetimeIndex have different tz, convert to UTC
+        if is_datetime64tz_dtype(left.index):
+            if left.index.tz != right.index.tz:
+                if join_index is not None:
+                    left.index = join_index
+                    right.index = join_index
+
         return left.__finalize__(self), right.__finalize__(other)
 
     def _align_series(self, other, join='outer', axis=None, level=None,
                       copy=True, fill_value=None, method=None, limit=None,
                       fill_axis=0):
+
+        is_series = isinstance(self, ABCSeries)
+
         # series/series compat, other must always be a Series
-        if isinstance(self, ABCSeries):
+        if is_series:
             if axis:
                 raise ValueError('cannot align series to a series other than '
                                  'axis 0')
@@ -4503,6 +4524,15 @@ class NDFrame(PandasObject):
             left = left.fillna(fill_value, method=method, limit=limit,
                                axis=fill_axis)
             right = right.fillna(fill_value, method=method, limit=limit)
+
+        # if DatetimeIndex have different tz, convert to UTC
+        if is_series or (not is_series and axis == 0):
+            if is_datetime64tz_dtype(left.index):
+                if left.index.tz != right.index.tz:
+                    if join_index is not None:
+                        left.index = join_index
+                        right.index = join_index
+
         return left.__finalize__(self), right.__finalize__(other)
 
     def _where(self, cond, other=np.nan, inplace=False, axis=None, level=None,
@@ -4792,7 +4822,7 @@ class NDFrame(PandasObject):
         periods : int
             Number of periods to move, can be positive or negative
         freq : DateOffset, timedelta, or time rule string, optional
-            Increment to use from datetools module or time rule (e.g. 'EOM').
+            Increment to use from the tseries module or time rule (e.g. 'EOM').
             See Notes.
         axis : %(axes_single_arg)s
 
@@ -4865,7 +4895,7 @@ class NDFrame(PandasObject):
         periods : int
             Number of periods to move, can be positive or negative
         freq : DateOffset, timedelta, or time rule string, default None
-            Increment to use from datetools module or time rule (e.g. 'EOM')
+            Increment to use from the tseries module or time rule (e.g. 'EOM')
         axis : int or basestring
             Corresponds to the axis that contains the Index
 
@@ -4895,11 +4925,11 @@ class NDFrame(PandasObject):
             return self
 
         if isinstance(freq, string_types):
-            freq = datetools.to_offset(freq)
+            freq = to_offset(freq)
 
         block_axis = self._get_block_manager_axis(axis)
         if isinstance(index, PeriodIndex):
-            orig_freq = datetools.to_offset(index.freq)
+            orig_freq = to_offset(index.freq)
             if freq == orig_freq:
                 new_data = self._data.copy()
                 new_data.axes[block_axis] = index.shift(periods)
@@ -5510,8 +5540,8 @@ level : int or level name, default None
     If the axis is a MultiIndex (hierarchical), count along a
     particular level, collapsing into a %(name1)s
 numeric_only : boolean, default None
-    Include only float, int, boolean data. If None, will attempt to use
-    everything, then use only numeric data
+    Include only float, int, boolean columns. If None, will attempt to use
+    everything, then use only numeric data. Not implemented for Series.
 
 Returns
 -------
@@ -5533,8 +5563,8 @@ level : int or level name, default None
 ddof : int, default 1
     degrees of freedom
 numeric_only : boolean, default None
-    Include only float, int, boolean data. If None, will attempt to use
-    everything, then use only numeric data
+    Include only float, int, boolean columns. If None, will attempt to use
+    everything, then use only numeric data. Not implemented for Series.
 
 Returns
 -------
@@ -5554,8 +5584,8 @@ level : int or level name, default None
     If the axis is a MultiIndex (hierarchical), count along a
     particular level, collapsing into a %(name1)s
 bool_only : boolean, default None
-    Include only boolean data. If None, will attempt to use everything,
-    then use only boolean data
+    Include only boolean columns. If None, will attempt to use everything,
+    then use only boolean data. Not implemented for Series.
 
 Returns
 -------

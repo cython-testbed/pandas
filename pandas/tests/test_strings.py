@@ -2439,6 +2439,26 @@ class TestStringMethods(tm.TestCase):
                            True, False, False])
         assert_series_equal(result, expected)
 
+    def test_contains_nan(self):
+        # PR #14171
+        s = Series([np.nan, np.nan, np.nan], dtype=np.object_)
+
+        result = s.str.contains('foo', na=False)
+        expected = Series([False, False, False], dtype=np.bool_)
+        assert_series_equal(result, expected)
+
+        result = s.str.contains('foo', na=True)
+        expected = Series([True, True, True], dtype=np.bool_)
+        assert_series_equal(result, expected)
+
+        result = s.str.contains('foo', na="foo")
+        expected = Series(["foo", "foo", "foo"], dtype=np.object_)
+        assert_series_equal(result, expected)
+
+        result = s.str.contains('foo')
+        expected = Series([np.nan, np.nan, np.nan], dtype=np.object_)
+        assert_series_equal(result, expected)
+
     def test_more_replace(self):
         # PR #1179
         s = Series(['A', 'B', 'C', 'Aaba', 'Baca', '', NA, 'CABA',
@@ -2584,7 +2604,7 @@ class TestStringMethods(tm.TestCase):
         self.assertEqual(str_multiple.loc[1], '2011 2 2')
 
     def test_str_cat_raises_intuitive_error(self):
-        # https://github.com/pydata/pandas/issues/11334
+        # https://github.com/pandas-dev/pandas/issues/11334
         s = Series(['a', 'b', 'c', 'd'])
         message = "Did you mean to supply a `sep` keyword?"
         with tm.assertRaisesRegexp(ValueError, message):
@@ -2641,7 +2661,7 @@ class TestStringMethods(tm.TestCase):
             idx.str
 
     def test_str_accessor_no_new_attributes(self):
-        # https://github.com/pydata/pandas/issues/10673
+        # https://github.com/pandas-dev/pandas/issues/10673
         s = Series(list('aabbcde'))
         with tm.assertRaisesRegexp(AttributeError,
                                    "You cannot add any new attribute"):

@@ -1481,7 +1481,7 @@ function takes a number of arguments. Only the first is required.
   - ``encoding``: a string representing the encoding to use if the contents are
     non-ASCII, for python versions prior to 3
   - ``line_terminator``: Character sequence denoting line end (default '\\n')
-  - ``quoting``: Set quoting rules as in csv module (default csv.QUOTE_MINIMAL)
+  - ``quoting``: Set quoting rules as in csv module (default csv.QUOTE_MINIMAL). Note that if you have set a `float_format` then floats are converted to strings and csv.QUOTE_NONNUMERIC will treat them as non-numeric
   - ``quotechar``: Character used to quote fields (default '"')
   - ``doublequote``: Control quoting of ``quotechar`` in fields (default True)
   - ``escapechar``: Character used to escape ``sep`` and ``quotechar`` when
@@ -2035,7 +2035,7 @@ You can even pass in an instance of ``StringIO`` if you so desire
    that having so many network-accessing functions slows down the documentation
    build. If you spot an error or an example that doesn't run, please do not
    hesitate to report it over on `pandas GitHub issues page
-   <http://www.github.com/pydata/pandas/issues>`__.
+   <http://www.github.com/pandas-dev/pandas/issues>`__.
 
 
 Read a URL and match a table that contains specific text
@@ -2639,8 +2639,8 @@ config options <options>` ``io.excel.xlsx.writer`` and
 ``io.excel.xls.writer``. pandas will fall back on `openpyxl`_ for ``.xlsx``
 files if `Xlsxwriter`_ is not available.
 
-.. _XlsxWriter: http://xlsxwriter.readthedocs.org
-.. _openpyxl: http://openpyxl.readthedocs.org/
+.. _XlsxWriter: https://xlsxwriter.readthedocs.io
+.. _openpyxl: https://openpyxl.readthedocs.io/
 .. _xlwt: http://www.python-excel.org
 
 To specify which writer you want to use, you can pass an engine keyword
@@ -2775,6 +2775,7 @@ both on the writing (serialization), and reading (deserialization).
    as an EXPERIMENTAL LIBRARY, the storage format may not be stable until a future release.
 
    As a result of writing format changes and other issues:
+
    +----------------------+------------------------+
    | Packed with          | Can be unpacked with   |
    +======================+========================+
@@ -4579,8 +4580,7 @@ a ``TableCreationError`` if the destination table already exists.
 
    If the ``if_exists`` argument is set to ``'append'``, the destination dataframe will
    be written to the table using the defined table schema and column types. The
-   dataframe must match the destination table in column order, structure, and
-   data types.
+   dataframe must match the destination table in structure and data types.
    If the ``if_exists`` argument is set to ``'replace'``, and the existing table has a
    different schema, a delay of 2 minutes will be forced to ensure that the new schema
    has propagated in the Google environment. See

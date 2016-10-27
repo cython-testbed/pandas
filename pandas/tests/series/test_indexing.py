@@ -12,15 +12,15 @@ from pandas import Index, Series, DataFrame, isnull, date_range
 from pandas.core.index import MultiIndex
 from pandas.core.indexing import IndexingError
 from pandas.tseries.index import Timestamp
+from pandas.tseries.offsets import BDay
 from pandas.tseries.tdi import Timedelta
 
-import pandas.core.datetools as datetools
 from pandas.compat import lrange, range
 from pandas import compat
 from pandas.util.testing import assert_series_equal, assert_almost_equal
 import pandas.util.testing as tm
 
-from .common import TestData
+from pandas.tests.series.common import TestData
 
 JOIN_TYPES = ['inner', 'outer', 'left', 'right']
 
@@ -153,7 +153,7 @@ class TestSeriesIndexing(TestData, tm.TestCase):
         self.assertEqual(self.series[5], self.series.get(self.series.index[5]))
 
         # missing
-        d = self.ts.index[0] - datetools.bday
+        d = self.ts.index[0] - BDay()
         self.assertRaises(KeyError, self.ts.__getitem__, d)
 
         # None
@@ -321,7 +321,7 @@ class TestSeriesIndexing(TestData, tm.TestCase):
 
     def test_getitem_setitem_boolean_corner(self):
         ts = self.ts
-        mask_shifted = ts.shift(1, freq=datetools.bday) > ts.median()
+        mask_shifted = ts.shift(1, freq=BDay()) > ts.median()
 
         # these used to raise...??
 
@@ -775,6 +775,89 @@ class TestSeriesIndexing(TestData, tm.TestCase):
         idx = iter(self.series.index[:10])
         result = self.series.ix[idx]
         assert_series_equal(result, self.series[:10])
+
+    def test_setitem_with_tz(self):
+        for tz in ['US/Eastern', 'UTC', 'Asia/Tokyo']:
+            orig = pd.Series(pd.date_range('2016-01-01', freq='H', periods=3,
+                                           tz=tz))
+            self.assertEqual(orig.dtype, 'datetime64[ns, {0}]'.format(tz))
+
+            # scalar
+            s = orig.copy()
+            s[1] = pd.Timestamp('2011-01-01', tz=tz)
+            exp = pd.Series([pd.Timestamp('2016-01-01 00:00', tz=tz),
+                             pd.Timestamp('2011-01-01 00:00', tz=tz),
+                             pd.Timestamp('2016-01-01 02:00', tz=tz)])
+            tm.assert_series_equal(s, exp)
+
+            s = orig.copy()
+            s.loc[1] = pd.Timestamp('2011-01-01', tz=tz)
+            tm.assert_series_equal(s, exp)
+
+            s = orig.copy()
+            s.iloc[1] = pd.Timestamp('2011-01-01', tz=tz)
+            tm.assert_series_equal(s, exp)
+
+            # vector
+            vals = pd.Series([pd.Timestamp('2011-01-01', tz=tz),
+                              pd.Timestamp('2012-01-01', tz=tz)], index=[1, 2])
+            self.assertEqual(vals.dtype, 'datetime64[ns, {0}]'.format(tz))
+
+            s[[1, 2]] = vals
+            exp = pd.Series([pd.Timestamp('2016-01-01 00:00', tz=tz),
+                             pd.Timestamp('2011-01-01 00:00', tz=tz),
+                             pd.Timestamp('2012-01-01 00:00', tz=tz)])
+            tm.assert_series_equal(s, exp)
+
+            s = orig.copy()
+            s.loc[[1, 2]] = vals
+            tm.assert_series_equal(s, exp)
+
+            s = orig.copy()
+            s.iloc[[1, 2]] = vals
+            tm.assert_series_equal(s, exp)
+
+    def test_setitem_with_tz_dst(self):
+        # GH XXX
+        tz = 'US/Eastern'
+        orig = pd.Series(pd.date_range('2016-11-06', freq='H', periods=3,
+                                       tz=tz))
+        self.assertEqual(orig.dtype, 'datetime64[ns, {0}]'.format(tz))
+
+        # scalar
+        s = orig.copy()
+        s[1] = pd.Timestamp('2011-01-01', tz=tz)
+        exp = pd.Series([pd.Timestamp('2016-11-06 00:00', tz=tz),
+                         pd.Timestamp('2011-01-01 00:00', tz=tz),
+                         pd.Timestamp('2016-11-06 02:00', tz=tz)])
+        tm.assert_series_equal(s, exp)
+
+        s = orig.copy()
+        s.loc[1] = pd.Timestamp('2011-01-01', tz=tz)
+        tm.assert_series_equal(s, exp)
+
+        s = orig.copy()
+        s.iloc[1] = pd.Timestamp('2011-01-01', tz=tz)
+        tm.assert_series_equal(s, exp)
+
+        # vector
+        vals = pd.Series([pd.Timestamp('2011-01-01', tz=tz),
+                          pd.Timestamp('2012-01-01', tz=tz)], index=[1, 2])
+        self.assertEqual(vals.dtype, 'datetime64[ns, {0}]'.format(tz))
+
+        s[[1, 2]] = vals
+        exp = pd.Series([pd.Timestamp('2016-11-06 00:00', tz=tz),
+                         pd.Timestamp('2011-01-01 00:00', tz=tz),
+                         pd.Timestamp('2012-01-01 00:00', tz=tz)])
+        tm.assert_series_equal(s, exp)
+
+        s = orig.copy()
+        s.loc[[1, 2]] = vals
+        tm.assert_series_equal(s, exp)
+
+        s = orig.copy()
+        s.iloc[[1, 2]] = vals
+        tm.assert_series_equal(s, exp)
 
     def test_where(self):
         s = Series(np.random.randn(5))
@@ -1324,6 +1407,13 @@ class TestSeriesIndexing(TestData, tm.TestCase):
         s.loc['A'] = timedelta(1)
         tm.assert_series_equal(s, expected)
 
+        # GH 14155
+        s = Series(10 * [np.timedelta64(10, 'm')])
+        s.loc[[1, 2, 3]] = np.timedelta64(20, 'm')
+        expected = pd.Series(10 * [np.timedelta64(10, 'm')])
+        expected.loc[[1, 2, 3]] = pd.Timedelta(np.timedelta64(20, 'm'))
+        tm.assert_series_equal(s, expected)
+
     def test_underlying_data_conversion(self):
 
         # GH 4080
@@ -1856,3 +1946,42 @@ class TestSeriesIndexing(TestData, tm.TestCase):
         result2 = s.ix['foo']
         self.assertEqual(result.name, s.name)
         self.assertEqual(result2.name, s.name)
+
+    def test_setitem_scalar_into_readonly_backing_data(self):
+        # GH14359: test that you cannot mutate a read only buffer
+
+        array = np.zeros(5)
+        array.flags.writeable = False  # make the array immutable
+        series = Series(array)
+
+        for n in range(len(series)):
+            with self.assertRaises(ValueError):
+                series[n] = 1
+
+            self.assertEqual(
+                array[n],
+                0,
+                msg='even though the ValueError was raised, the underlying'
+                ' array was still mutated!',
+            )
+
+    def test_setitem_slice_into_readonly_backing_data(self):
+        # GH14359: test that you cannot mutate a read only buffer
+
+        array = np.zeros(5)
+        array.flags.writeable = False  # make the array immutable
+        series = Series(array)
+
+        with self.assertRaises(ValueError):
+            series[1:3] = 1
+
+        self.assertTrue(
+            not array.any(),
+            msg='even though the ValueError was raised, the underlying'
+            ' array was still mutated!',
+        )
+
+if __name__ == '__main__':
+    import nose
+    nose.runmodule(argv=[__file__, '-vvs', '-x', '--pdb', '--pdb-failure'],
+                   exit=False)

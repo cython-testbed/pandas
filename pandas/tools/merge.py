@@ -146,7 +146,7 @@ def ordered_merge(left, right, on=None,
                   left_by=None, right_by=None,
                   fill_method=None, suffixes=('_x', '_y')):
 
-    warnings.warn("ordered_merge is deprecated and replace by merged_ordered",
+    warnings.warn("ordered_merge is deprecated and replaced by merge_ordered",
                   FutureWarning, stacklevel=2)
     return merge_ordered(left, right, on=on,
                          left_on=left_on, right_on=right_on,
@@ -471,6 +471,15 @@ class _MergeOperation(object):
             raise ValueError(
                 'can not merge DataFrame with instance of '
                 'type {0}'.format(type(right)))
+
+        if not is_bool(left_index):
+            raise ValueError(
+                'left_index parameter must be of type bool, not '
+                '{0}'.format(type(left_index)))
+        if not is_bool(right_index):
+            raise ValueError(
+                'right_index parameter must be of type bool, not '
+                '{0}'.format(type(right_index)))
 
         # warn user when merging between different levels
         if left.columns.nlevels != right.columns.nlevels:
@@ -1283,16 +1292,19 @@ def concat(objs, axis=0, join='outer', join_axes=None, ignore_index=False,
         argument, unless it is passed, in which case the values will be
         selected (see below). Any None objects will be dropped silently unless
         they are all None in which case a ValueError will be raised
-    axis : {0, 1, ...}, default 0
+    axis : {0/'index', 1/'columns'}, default 0
         The axis to concatenate along
     join : {'inner', 'outer'}, default 'outer'
         How to handle indexes on other axis(es)
     join_axes : list of Index objects
         Specific indexes to use for the other n - 1 axes instead of performing
         inner/outer set logic
-    verify_integrity : boolean, default False
-        Check whether the new concatenated axis contains duplicates. This can
-        be very expensive relative to the actual data concatenation
+    ignore_index : boolean, default False
+        If True, do not use the index values along the concatenation axis. The
+        resulting axis will be labeled 0, ..., n - 1. This is useful if you are
+        concatenating objects where the concatenation axis does not have
+        meaningful indexing information. Note the index values on the other
+        axes are still respected in the join.
     keys : sequence, default None
         If multiple levels passed, should contain tuples. Construct
         hierarchical index using the passed keys as the outermost level
@@ -1301,12 +1313,9 @@ def concat(objs, axis=0, join='outer', join_axes=None, ignore_index=False,
         MultiIndex. Otherwise they will be inferred from the keys
     names : list, default None
         Names for the levels in the resulting hierarchical index
-    ignore_index : boolean, default False
-        If True, do not use the index values along the concatenation axis. The
-        resulting axis will be labeled 0, ..., n - 1. This is useful if you are
-        concatenating objects where the concatenation axis does not have
-        meaningful indexing information. Note the index values on the other
-        axes are still respected in the join.
+    verify_integrity : boolean, default False
+        Check whether the new concatenated axis contains duplicates. This can
+        be very expensive relative to the actual data concatenation
     copy : boolean, default True
         If False, do not copy data unnecessarily
 
@@ -1369,7 +1378,8 @@ class _Concatenator(object):
                 clean_keys.append(k)
                 clean_objs.append(v)
             objs = clean_objs
-            keys = clean_keys
+            name = getattr(keys, 'name', None)
+            keys = Index(clean_keys, name=name)
 
         if len(objs) == 0:
             raise ValueError('All objects passed were None')
@@ -1409,6 +1419,12 @@ class _Concatenator(object):
         if sample is None:
             sample = objs[0]
         self.objs = objs
+
+        # Standardize axis parameter to int
+        if isinstance(sample, Series):
+            axis = DataFrame()._get_axis_number(axis)
+        else:
+            axis = sample._get_axis_number(axis)
 
         # Need to flip BlockManager axis in the DataFrame special case
         self._is_frame = isinstance(sample, DataFrame)
@@ -1454,7 +1470,7 @@ class _Concatenator(object):
         self.axis = axis
         self.join_axes = join_axes
         self.keys = keys
-        self.names = names
+        self.names = names or getattr(keys, 'names', None)
         self.levels = levels
 
         self.ignore_index = ignore_index
@@ -1512,10 +1528,9 @@ class _Concatenator(object):
 
                 mgrs_indexers.append((obj._data, indexers))
 
-            new_data = concatenate_block_managers(mgrs_indexers,
-                                                  self.new_axes,
-                                                  concat_axis=self.axis,
-                                                  copy=self.copy)
+            new_data = concatenate_block_managers(
+                mgrs_indexers, self.new_axes, concat_axis=self.axis,
+                copy=self.copy)
             if not self.copy:
                 new_data._consolidate_inplace()
 

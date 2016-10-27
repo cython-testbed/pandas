@@ -7,7 +7,7 @@
    from datetime import datetime, timedelta, time
    import numpy as np
    import pandas as pd
-   from pandas import datetools
+   from pandas import offsets
    np.random.seed(123456)
    randn = np.random.randn
    randint = np.random.randint
@@ -1219,11 +1219,11 @@ objects.
    ts.shift(1)
 
 The shift method accepts an ``freq`` argument which can accept a
-``DateOffset`` class or other ``timedelta``-like object or also a :ref:`offset alias <timeseries.alias>`:
+``DateOffset`` class or other ``timedelta``-like object or also a :ref:`offset alias <timeseries.offset_aliases>`:
 
 .. ipython:: python
 
-   ts.shift(5, freq=datetools.bday)
+   ts.shift(5, freq=offsets.BDay())
    ts.shift(5, freq='BM')
 
 Rather than changing the alignment of the data and the index, ``DataFrame`` and
@@ -1246,7 +1246,7 @@ around ``reindex`` which generates a ``date_range`` and calls ``reindex``.
 
 .. ipython:: python
 
-   dr = pd.date_range('1/1/2010', periods=3, freq=3 * datetools.bday)
+   dr = pd.date_range('1/1/2010', periods=3, freq=3 * offsets.BDay())
    ts = pd.Series(randn(3), index=dr)
    ts
    ts.asfreq(BDay())
@@ -1494,7 +1494,7 @@ level of ``MultiIndex``, its name or location can be passed to the
 
 .. ipython:: python
 
-   df.resample(level='d').sum()
+   df.resample('M', level='d').sum()
 
 
 .. _timeseries.periods:
@@ -1629,8 +1629,6 @@ Period Dtypes
 
 ``PeriodIndex`` has a custom ``period`` dtype. This is a pandas extension
 dtype similar to the :ref:`timezone aware dtype <timeseries.timezone_series>` (``datetime64[ns, tz]``).
-
-.. _timeseries.timezone_series:
 
 The ``period`` dtype holds the ``freq`` attribute and is represented with
 ``period[freq]`` like ``period[D]`` or ``period[M]``, using :ref:`frequency strings <timeseries.offset_aliases>`.

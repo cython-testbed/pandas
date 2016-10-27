@@ -678,6 +678,31 @@ class TestEvalNumexprPandas(tm.TestCase):
         result = pd.eval(exp, engine=self.engine, parser=self.parser)
         self.assertEqual(result, 12)
 
+    def test_float_truncation(self):
+        # GH 14241
+        exp = '1000000000.006'
+        result = pd.eval(exp, engine=self.engine, parser=self.parser)
+        expected = np.float64(exp)
+        self.assertEqual(result, expected)
+
+        df = pd.DataFrame({'A': [1000000000.0009,
+                                 1000000000.0011,
+                                 1000000000.0015]})
+        cutoff = 1000000000.0006
+        result = df.query("A < %.4f" % cutoff)
+        self.assertTrue(result.empty)
+
+        cutoff = 1000000000.0010
+        result = df.query("A > %.4f" % cutoff)
+        expected = df.loc[[1, 2], :]
+        tm.assert_frame_equal(expected, result)
+
+        exact = 1000000000.0011
+        result = df.query('A == %.4f' % exact)
+        expected = df.loc[[1], :]
+        tm.assert_frame_equal(expected, result)
+
+
 
 class TestEvalNumexprPython(TestEvalNumexprPandas):
 
@@ -758,21 +783,21 @@ ENGINES_PARSERS = list(product(_engines, expr._parsers))
 # typecasting rules consistency with python
 # issue #12388
 
-class TestTypeCasting(tm.TestCase):
+class TestTypeCasting(object):
 
     def check_binop_typecasting(self, engine, parser, op, dt):
         tm.skip_if_no_ne(engine)
         df = mkdf(5, 3, data_gen_f=f, dtype=dt)
         s = 'df {} 3'.format(op)
         res = pd.eval(s, engine=engine, parser=parser)
-        self.assertTrue(df.values.dtype == dt)
-        self.assertTrue(res.values.dtype == dt)
+        assert df.values.dtype == dt
+        assert res.values.dtype == dt
         assert_frame_equal(res, eval(s))
 
         s = '3 {} df'.format(op)
         res = pd.eval(s, engine=engine, parser=parser)
-        self.assertTrue(df.values.dtype == dt)
-        self.assertTrue(res.values.dtype == dt)
+        assert df.values.dtype == dt
+        assert res.values.dtype == dt
         assert_frame_equal(res, eval(s))
 
     def test_binop_typecasting(self):
@@ -1668,11 +1693,11 @@ class TestMathPythonPython(tm.TestCase):
         self.check_result_type(np.float64, np.float64)
 
     def test_result_types2(self):
-        # xref https://github.com/pydata/pandas/issues/12293
+        # xref https://github.com/pandas-dev/pandas/issues/12293
         raise nose.SkipTest("unreliable tests on complex128")
 
         # Did not test complex64 because DataFrame is converting it to
-        # complex128. Due to https://github.com/pydata/pandas/issues/10952
+        # complex128. Due to https://github.com/pandas-dev/pandas/issues/10952
         self.check_result_type(np.complex128, np.complex128)
 
     def test_undefined_func(self):
@@ -1864,6 +1889,18 @@ def check_bad_resolver_raises(engine, parser):
 def test_bad_resolver_raises():
     for engine, parser in ENGINES_PARSERS:
         yield check_bad_resolver_raises, engine, parser
+
+
+def check_empty_string_raises(engine, parser):
+    # GH 13139
+    tm.skip_if_no_ne(engine)
+    with tm.assertRaisesRegexp(ValueError, 'expr cannot be an empty string'):
+        pd.eval('', engine=engine, parser=parser)
+
+
+def test_empty_string_raises():
+    for engine, parser in ENGINES_PARSERS:
+        yield check_empty_string_raises, engine, parser
 
 
 def check_more_than_one_expression_raises(engine, parser):

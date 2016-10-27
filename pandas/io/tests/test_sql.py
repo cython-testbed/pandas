@@ -37,7 +37,7 @@ from pandas import DataFrame, Series, Index, MultiIndex, isnull, concat
 from pandas import date_range, to_datetime, to_timedelta, Timestamp
 import pandas.compat as compat
 from pandas.compat import StringIO, range, lrange, string_types
-from pandas.core.datetools import format as date_format
+from pandas.tseries.tools import format as date_format
 
 import pandas.io.sql as sql
 from pandas.io.sql import read_sql_table, read_sql_query
@@ -1610,7 +1610,7 @@ class _TestSQLAlchemy(SQLAlchemyMixIn, PandasSQLTest):
 
     def test_connectable_issue_example(self):
         # This tests the example raised in issue
-        # https://github.com/pydata/pandas/issues/10104
+        # https://github.com/pandas-dev/pandas/issues/10104
 
         def foo(connection):
             query = 'SELECT test_foo_data FROM test_foo_data'
