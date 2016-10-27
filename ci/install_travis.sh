@@ -106,7 +106,7 @@ if [ "$BUILD_TEST" ]; then
 
     # build testing
     pip uninstall --yes cython
-    pip install https://github.com/cython/cython/archive/master.zip --install-option=--no-cython-compile
+    pip install https://github.com/cython/cython/archive/0.25.1.zip --install-option=--no-cython-compile
     ( python setup.py build_ext --inplace && python setup.py develop ) || true
 
 else
