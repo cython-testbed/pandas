@@ -17,14 +17,11 @@ if [ "$?" != "0" ]; then
 fi
 
 
-if [ x"$DOC_BUILD" != x"" ]; then
+if [ "$DOC" ]; then
 
     echo "Will build docs"
 
     source activate pandas
-    conda install -n pandas -c r r rpy2 --yes
-
-    time sudo apt-get $APT_ARGS install dvipng texlive-latex-base texlive-latex-extra
 
     mv "$TRAVIS_BUILD_DIR"/doc /tmp
     cd /tmp/doc
@@ -44,7 +41,9 @@ if [ x"$DOC_BUILD" != x"" ]; then
     git config --global user.email "pandas-docs-bot@localhost.foo"
     git config --global user.name "pandas-docs-bot"
 
+    # create the repo
     git init
+
     touch README
     git add README
     git commit -m "Initial commit" --allow-empty
@@ -53,8 +52,22 @@ if [ x"$DOC_BUILD" != x"" ]; then
     touch .nojekyll
     git add --all .
     git commit -m "Version" --allow-empty
-    git remote add origin https://$GH_TOKEN@github.com/pandas-docs/pandas-docs-travis
+
+    git remote remove origin
+    git remote add origin "https://${PANDAS_GH_TOKEN}@github.com/pandas-dev/pandas-docs-travis.git"
+    git fetch origin
+    git remote -v
+
     git push origin gh-pages -f
+
+    echo "Running doctests"
+    cd "$TRAVIS_BUILD_DIR"
+    pytest --doctest-modules \
+           pandas/core/reshape/concat.py \
+           pandas/core/reshape/pivot.py \
+           pandas/core/reshape/reshape.py \
+           pandas/core/reshape/tile.py
+
 fi
 
 exit 0
