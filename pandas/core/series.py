@@ -850,8 +850,9 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
     def reshape(self, *args, **kwargs):
         """
-        DEPRECATED: calling this method will raise an error in a
-        future release. Please call ``.values.reshape(...)`` instead.
+        .. deprecated:: 0.19.0
+           Calling this method will raise an error. Please call
+           ``.values.reshape(...)`` instead.
 
         return an ndarray with the values shape
         if the specified shape matches exactly the current shape, then
@@ -1847,7 +1848,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                 dtype='int64').__finalize__(self)
 
     def nlargest(self, n=5, keep='first'):
-        """Return the largest `n` elements.
+        """
+        Return the largest `n` elements.
 
         Parameters
         ----------
@@ -1893,7 +1895,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         return algorithms.SelectNSeries(self, n=n, keep=keep).nlargest()
 
     def nsmallest(self, n=5, keep='first'):
-        """Return the smallest `n` elements.
+        """
+        Return the smallest `n` elements.
 
         Parameters
         ----------

@@ -105,8 +105,8 @@ usecols : array-like or callable, default None
     ['AAA', 'BBB', 'DDD']``. Using this parameter results in much faster
     parsing time and lower memory usage.
 as_recarray : boolean, default False
-    DEPRECATED: this argument will be removed in a future version. Please call
-    `pd.read_csv(...).to_records()` instead.
+    .. deprecated:: 0.19.0
+       Please call `pd.read_csv(...).to_records()` instead.
 
     Return a NumPy recarray instead of a DataFrame after parsing the data.
     If set to True, this option takes precedence over the `squeeze` parameter.
@@ -145,14 +145,15 @@ skiprows : list-like or integer or callable, default None
 skipfooter : int, default 0
     Number of lines at bottom of file to skip (Unsupported with engine='c')
 skip_footer : int, default 0
-    DEPRECATED: use the `skipfooter` parameter instead, as they are identical
+    .. deprecated:: 0.19.0
+       Use the `skipfooter` parameter instead, as they are identical
 nrows : int, default None
     Number of rows of file to read. Useful for reading pieces of large files
 na_values : scalar, str, list-like, or dict, default None
     Additional strings to recognize as NA/NaN. If dict passed, specific
     per-column NA values.  By default the following values are interpreted as
     NaN: '""" + fill("', '".join(sorted(_NA_VALUES)),
-                     70, subsequent_indent="    ") + """'`.
+                     70, subsequent_indent="    ") + """'.
 keep_default_na : bool, default True
     If na_values are specified and keep_default_na is False the default NaN
     values are overridden, otherwise they're appended to.
@@ -181,22 +182,23 @@ default False
 
     Note: A fast-path exists for iso8601-formatted dates.
 infer_datetime_format : boolean, default False
-    If True and parse_dates is enabled, pandas will attempt to infer the format
-    of the datetime strings in the columns, and if it can be inferred, switch
-    to a faster method of parsing them. In some cases this can increase the
-    parsing speed by 5-10x.
+    If True and `parse_dates` is enabled, pandas will attempt to infer the
+    format of the datetime strings in the columns, and if it can be inferred,
+    switch to a faster method of parsing them. In some cases this can increase
+    the parsing speed by 5-10x.
 keep_date_col : boolean, default False
-    If True and parse_dates specifies combining multiple columns then
+    If True and `parse_dates` specifies combining multiple columns then
     keep the original columns.
 date_parser : function, default None
     Function to use for converting a sequence of string columns to an array of
     datetime instances. The default uses ``dateutil.parser.parser`` to do the
-    conversion. Pandas will try to call date_parser in three different ways,
+    conversion. Pandas will try to call `date_parser` in three different ways,
     advancing to the next if an exception occurs: 1) Pass one or more arrays
-    (as defined by parse_dates) as arguments; 2) concatenate (row-wise) the
-    string values from the columns defined by parse_dates into a single array
-    and pass that; and 3) call date_parser once for each row using one or more
-    strings (corresponding to the columns defined by parse_dates) as arguments.
+    (as defined by `parse_dates`) as arguments; 2) concatenate (row-wise) the
+    string values from the columns defined by `parse_dates` into a single array
+    and pass that; and 3) call `date_parser` once for each row using one or
+    more strings (corresponding to the columns defined by `parse_dates`) as
+    arguments.
 dayfirst : boolean, default False
     DD/MM format dates, international and European format
 iterator : boolean, default False
@@ -276,17 +278,19 @@ low_memory : boolean, default True
     use the `chunksize` or `iterator` parameter to return the data in chunks.
     (Only valid with C parser)
 buffer_lines : int, default None
-    DEPRECATED: this argument will be removed in a future version because its
-    value is not respected by the parser
+    .. deprecated:: 0.19.0
+       This argument is not respected by the parser
 compact_ints : boolean, default False
-    DEPRECATED: this argument will be removed in a future version
+    .. deprecated:: 0.19.0
+       Argument moved to ``pd.to_numeric``
 
     If compact_ints is True, then for any column that is of integer dtype,
     the parser will attempt to cast it as the smallest integer dtype possible,
     either signed or unsigned depending on the specification from the
     `use_unsigned` parameter.
 use_unsigned : boolean, default False
-    DEPRECATED: this argument will be removed in a future version
+    .. deprecated:: 0.19.0
+       Argument moved to ``pd.to_numeric``
 
     If integer columns are being compacted (i.e. `compact_ints=True`), specify
     whether the column should be compacted to the smallest signed or unsigned
