@@ -37,15 +37,17 @@ Performance Improvements
 Bug Fixes
 ~~~~~~~~~
 - Fixed issue with dataframe scatter plot for categorical data that reports incorrect column key not found when categorical data is used for plotting (:issue:`16199`)
-
-
-
+- Fixed issue with :meth:`DataFrame.style` where element id's were not unique (:issue:`16780`)
+- Fixed a pytest marker failing downstream packages' tests suites (:issue:`16680`)
+- Fixed compat with loading a ``DataFrame`` with a ``PeriodIndex``, from a ``format='fixed'`` HDFStore, in Python 3, that was written in Python 2 (:issue:`16781`)
+- Fixed bug where computing the rolling covariance of a MultiIndexed ``DataFrame`` improperly raised a ``ValueError`` (:issue:`16789`)
 
 Conversion
 ^^^^^^^^^^
 
 - Bug in pickle compat prior to the v0.20.x series, when ``UTC`` is a timezone in a Series/DataFrame/Index (:issue:`16608`)
-- Bug in Series construction when passing a Series with ``dtype='category'`` (:issue:`16524`).
+- Bug in ``Series`` construction when passing a ``Series`` with ``dtype='category'`` (:issue:`16524`).
+- Bug in ``DataFrame.astype()`` when passing a ``Series`` as the ``dtype`` kwarg. (:issue:`16717`).
 
 Indexing
 ^^^^^^^^
@@ -55,8 +57,9 @@ Indexing
 I/O
 ^^^
 
-- Bug in :func:`read_csv`` in which files weren't opened as binary files by the C engine on Windows, causing EOF characters mid-field, which would fail (:issue:`16039`, :issue:`16559`, :issue:`16675`)
-- Bug in :func:`read_hdf`` in which reading a ``Series`` saved to an HDF file in 'fixed' format fails when an explicit ``mode='r'`` argument is supplied (:issue:`16583`)
+- Bug in :func:`read_csv` in which files weren't opened as binary files by the C engine on Windows, causing EOF characters mid-field, which would fail (:issue:`16039`, :issue:`16559`, :issue:`16675`)
+- Bug in :func:`read_hdf` in which reading a ``Series`` saved to an HDF file in 'fixed' format fails when an explicit ``mode='r'`` argument is supplied (:issue:`16583`)
+- Bug in :func:`DataFrame.to_latex` where ``bold_rows`` was wrongly specified to be ``True`` by default, whereas in reality row labels remained non-bold whatever parameter provided. (:issue:`16707`)
 
 Plotting
 ^^^^^^^^
@@ -78,6 +81,8 @@ Sparse
 Reshaping
 ^^^^^^^^^
 
+- Bug in joining on a ``MultiIndex`` with a ``category`` dtype for a level (:issue:`16627`).
+- Bug in :func:`merge` when merging/joining with multiple categorical columns (:issue:`16767`)
 
 
 Numeric

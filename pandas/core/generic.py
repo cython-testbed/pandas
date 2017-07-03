@@ -52,6 +52,7 @@ from pandas import compat
 from pandas.compat.numpy import function as nv
 from pandas.compat import (map, zip, lzip, lrange, string_types,
                            isidentifier, set_function_name, cPickle as pkl)
+from pandas.core.ops import _align_method_FRAME
 import pandas.core.nanops as nanops
 from pandas.util._decorators import Appender, Substitution, deprecate_kwarg
 from pandas.util._validators import validate_bool_kwarg
@@ -1538,7 +1539,7 @@ class NDFrame(PandasObject, SelectionMixin):
 
         `to_latex`-specific options:
 
-        bold_rows : boolean, default True
+        bold_rows : boolean, default False
             Make the row labels bold in the output
         column_format : str, default None
             The columns format as specified in `LaTeX table format
@@ -1587,7 +1588,7 @@ it is assumed to be aliases for the column names.')
     @Appender(_shared_docs['to_latex'] % _shared_doc_kwargs)
     def to_latex(self, buf=None, columns=None, col_space=None, header=True,
                  index=True, na_rep='NaN', formatters=None, float_format=None,
-                 sparsify=None, index_names=True, bold_rows=True,
+                 sparsify=None, index_names=True, bold_rows=False,
                  column_format=None, longtable=None, escape=None,
                  encoding=None, decimal='.', multicolumn=None,
                  multicolumn_format=None, multirow=None):
@@ -3507,12 +3508,12 @@ it is assumed to be aliases for the column names.')
         -------
         casted : type of caller
         """
-        if isinstance(dtype, collections.Mapping):
+        if is_dict_like(dtype):
             if self.ndim == 1:  # i.e. Series
-                if len(dtype) > 1 or list(dtype.keys())[0] != self.name:
+                if len(dtype) > 1 or self.name not in dtype:
                     raise KeyError('Only the Series name can be used for '
                                    'the key in Series dtype mappings.')
-                new_type = list(dtype.values())[0]
+                new_type = dtype[self.name]
                 return self.astype(new_type, copy, errors, **kwargs)
             elif self.ndim > 2:
                 raise NotImplementedError(
@@ -4413,6 +4414,34 @@ it is assumed to be aliases for the column names.')
         else:
             return result
 
+    def _clip_with_one_bound(self, threshold, method, axis, inplace):
+
+        inplace = validate_bool_kwarg(inplace, 'inplace')
+        if axis is not None:
+            axis = self._get_axis_number(axis)
+
+        if np.any(isnull(threshold)):
+            raise ValueError("Cannot use an NA value as a clip threshold")
+
+        # method is self.le for upper bound and self.ge for lower bound
+        if is_scalar(threshold) and is_number(threshold):
+            if method.__name__ == 'le':
+                return self._clip_with_scalar(None, threshold, inplace=inplace)
+            return self._clip_with_scalar(threshold, None, inplace=inplace)
+
+        subset = method(threshold, axis=axis) | isnull(self)
+
+        # GH #15390
+        # In order for where method to work, the threshold must
+        # be transformed to NDFrame from other array like structure.
+        if (not isinstance(threshold, ABCSeries)) and is_list_like(threshold):
+            if isinstance(self, ABCSeries):
+                threshold = pd.Series(threshold, index=self.index)
+            else:
+                threshold = _align_method_FRAME(self, np.asarray(threshold),
+                                                axis)
+        return self.where(subset, threshold, axis=axis, inplace=inplace)
+
     def clip(self, lower=None, upper=None, axis=None, inplace=False,
              *args, **kwargs):
         """
@@ -4515,16 +4544,8 @@ it is assumed to be aliases for the column names.')
         -------
         clipped : same type as input
         """
-        if np.any(isnull(threshold)):
-            raise ValueError("Cannot use an NA value as a clip threshold")
-
-        if is_scalar(threshold) and is_number(threshold):
-            return self._clip_with_scalar(None, threshold, inplace=inplace)
-
-        inplace = validate_bool_kwarg(inplace, 'inplace')
-
-        subset = self.le(threshold, axis=axis) | isnull(self)
-        return self.where(subset, threshold, axis=axis, inplace=inplace)
+        return self._clip_with_one_bound(threshold, method=self.le,
+                                         axis=axis, inplace=inplace)
 
     def clip_lower(self, threshold, axis=None, inplace=False):
         """
@@ -4547,16 +4568,8 @@ it is assumed to be aliases for the column names.')
         -------
         clipped : same type as input
         """
-        if np.any(isnull(threshold)):
-            raise ValueError("Cannot use an NA value as a clip threshold")
-
-        if is_scalar(threshold) and is_number(threshold):
-            return self._clip_with_scalar(threshold, None, inplace=inplace)
-
-        inplace = validate_bool_kwarg(inplace, 'inplace')
-
-        subset = self.ge(threshold, axis=axis) | isnull(self)
-        return self.where(subset, threshold, axis=axis, inplace=inplace)
+        return self._clip_with_one_bound(threshold, method=self.ge,
+                                         axis=axis, inplace=inplace)
 
     def groupby(self, by=None, axis=0, level=None, as_index=True, sort=True,
                 group_keys=True, squeeze=False, **kwargs):
