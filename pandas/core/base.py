@@ -6,7 +6,7 @@ from pandas import compat
 from pandas.compat import builtins
 import numpy as np
 
-from pandas.core.dtypes.missing import isnull
+from pandas.core.dtypes.missing import isna
 from pandas.core.dtypes.generic import ABCDataFrame, ABCSeries, ABCIndexClass
 from pandas.core.dtypes.common import is_object_dtype, is_list_like, is_scalar
 from pandas.util._validators import validate_bool_kwarg
@@ -15,6 +15,7 @@ from pandas.core import common as com
 import pandas.core.nanops as nanops
 import pandas._libs.lib as lib
 from pandas.compat.numpy import function as nv
+from pandas.compat import PYPY
 from pandas.util._decorators import (Appender, cache_readonly,
                                      deprecate_kwarg, Substitution)
 from pandas.core.common import AbstractMethodError
@@ -165,6 +166,12 @@ class NoNewAttributesMixin(object):
 class PandasDelegate(PandasObject):
     """ an abstract base class for delegating methods/properties """
 
+    @classmethod
+    def _make_accessor(cls, data):
+        raise AbstractMethodError("_make_accessor should be implemented"
+                                  "by subclass and return an instance"
+                                  "of `cls`.")
+
     def _delegate_property_get(self, name, *args, **kwargs):
         raise TypeError("You cannot access the "
                         "property {name}".format(name=name))
@@ -231,9 +238,10 @@ class AccessorProperty(object):
     """Descriptor for implementing accessor properties like Series.str
     """
 
-    def __init__(self, accessor_cls, construct_accessor):
+    def __init__(self, accessor_cls, construct_accessor=None):
         self.accessor_cls = accessor_cls
-        self.construct_accessor = construct_accessor
+        self.construct_accessor = (construct_accessor or
+                                   accessor_cls._make_accessor)
         self.__doc__ = accessor_cls.__doc__
 
     def __get__(self, instance, owner=None):
@@ -334,24 +342,25 @@ class SelectionMixin(object):
 
     def __getitem__(self, key):
         if self._selection is not None:
-            raise Exception('Column(s) %s already selected' % self._selection)
+            raise Exception('Column(s) {selection} already selected'
+                            .format(selection=self._selection))
 
         if isinstance(key, (list, tuple, ABCSeries, ABCIndexClass,
                             np.ndarray)):
             if len(self.obj.columns.intersection(key)) != len(key):
                 bad_keys = list(set(key).difference(self.obj.columns))
-                raise KeyError("Columns not found: %s"
-                               % str(bad_keys)[1:-1])
+                raise KeyError("Columns not found: {missing}"
+                               .format(missing=str(bad_keys)[1:-1]))
             return self._gotitem(list(key), ndim=2)
 
         elif not getattr(self, 'as_index', False):
             if key not in self.obj.columns:
-                raise KeyError("Column not found: %s" % key)
+                raise KeyError("Column not found: {key}".format(key=key))
             return self._gotitem(key, ndim=2)
 
         else:
             if key not in self.obj:
-                raise KeyError("Column not found: %s" % key)
+                raise KeyError("Column not found: {key}".format(key=key))
             return self._gotitem(key, ndim=1)
 
     def _gotitem(self, key, ndim, subset=None):
@@ -401,7 +410,7 @@ class SelectionMixin(object):
         if f is not None:
             return f(self, *args, **kwargs)
 
-        raise ValueError("{} is an unknown string function".format(arg))
+        raise ValueError("{arg} is an unknown string function".format(arg=arg))
 
     def _aggregate(self, arg, *args, **kwargs):
         """
@@ -476,9 +485,9 @@ class SelectionMixin(object):
                         is_nested_renamer = True
 
                         if k not in obj.columns:
-                            raise SpecificationError('cannot perform renaming '
-                                                     'for {0} with a nested '
-                                                     'dictionary'.format(k))
+                            msg = ('cannot perform renaming for {key} with a '
+                                   'nested dictionary').format(key=k)
+                            raise SpecificationError(msg)
                         nested_renaming_depr(4 + (_level or 0))
 
                     elif isinstance(obj, ABCSeries):
@@ -894,7 +903,7 @@ class IndexOpsMixin(object):
     @cache_readonly
     def hasnans(self):
         """ return if I have any nans; enables various perf speedups """
-        return isnull(self).any()
+        return isna(self).any()
 
     def _reduce(self, op, name, axis=0, skipna=True, numeric_only=None,
                 filter_type=None, **kwds):
@@ -990,7 +999,7 @@ class IndexOpsMixin(object):
         """
         uniqs = self.unique()
         n = len(uniqs)
-        if dropna and isnull(uniqs).any():
+        if dropna and isna(uniqs).any():
             n -= 1
         return n
 
@@ -1054,7 +1063,7 @@ class IndexOpsMixin(object):
         Notes
         -----
         Memory usage does not include memory consumed by elements that
-        are not components of the array if deep=False
+        are not components of the array if deep=False or if used on PyPy
 
         See Also
         --------
@@ -1064,9 +1073,8 @@ class IndexOpsMixin(object):
             return self.values.memory_usage(deep=deep)
 
         v = self.values.nbytes
-        if deep and is_object_dtype(self):
+        if deep and is_object_dtype(self) and not PYPY:
             v += lib.memory_usage_of_objects(self.values)
-
         return v
 
     def factorize(self, sort=False, na_sentinel=-1):

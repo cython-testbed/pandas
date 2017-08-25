@@ -45,7 +45,7 @@ except ImportError:
     _have_setuptools = False
 
 setuptools_kwargs = {}
-min_numpy_ver = '1.7.0'
+min_numpy_ver = '1.9.0'
 if sys.version_info[0] >= 3:
 
     setuptools_kwargs = {
@@ -665,10 +665,12 @@ setup(name=DISTNAME,
                 'pandas.tests.computation',
                 'pandas.tests.sparse',
                 'pandas.tests.frame',
+                'pandas.tests.indexing',
                 'pandas.tests.indexes',
                 'pandas.tests.indexes.datetimes',
                 'pandas.tests.indexes.timedeltas',
                 'pandas.tests.indexes.period',
+                'pandas.tests.internals',
                 'pandas.tests.io',
                 'pandas.tests.io.json',
                 'pandas.tests.io.parser',
@@ -676,6 +678,7 @@ setup(name=DISTNAME,
                 'pandas.tests.io.msgpack',
                 'pandas.tests.io.formats',
                 'pandas.tests.groupby',
+                'pandas.tests.reshape',
                 'pandas.tests.series',
                 'pandas.tests.scalar',
                 'pandas.tests.tseries',

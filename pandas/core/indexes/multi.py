@@ -19,7 +19,7 @@ from pandas.core.dtypes.common import (
     is_iterator,
     is_list_like,
     is_scalar)
-from pandas.core.dtypes.missing import isnull, array_equivalent
+from pandas.core.dtypes.missing import isna, array_equivalent
 from pandas.errors import PerformanceWarning, UnsortedIndexError
 from pandas.core.common import (_values_from_object,
                                 is_bool_indexer,
@@ -465,9 +465,13 @@ class MultiIndex(Index):
         *this is in internal routine*
 
         """
+
+        # for implementations with no useful getsizeof (PyPy)
+        objsize = 24
+
         level_nbytes = sum((i.memory_usage(deep=deep) for i in self.levels))
         label_nbytes = sum((i.nbytes for i in self.labels))
-        names_nbytes = sum((getsizeof(i) for i in self.names))
+        names_nbytes = sum((getsizeof(i, objsize) for i in self.names))
         result = level_nbytes + label_nbytes + names_nbytes
 
         # include our engine hashtable
@@ -783,8 +787,8 @@ class MultiIndex(Index):
 
     @Appender(ibase._index_shared_docs['fillna'])
     def fillna(self, value=None, downcast=None):
-        # isnull is not implemented for MultiIndex
-        raise NotImplementedError('isnull is not defined for MultiIndex')
+        # isna is not implemented for MultiIndex
+        raise NotImplementedError('isna is not defined for MultiIndex')
 
     @Appender(_index_shared_docs['dropna'])
     def dropna(self, how='any'):
@@ -920,7 +924,7 @@ class MultiIndex(Index):
 
             else:
                 # weird all NA case
-                formatted = [pprint_thing(na if isnull(x) else x,
+                formatted = [pprint_thing(na if isna(x) else x,
                                           escape_chars=('\t', '\r', '\n'))
                              for x in algos.take_1d(lev._values, lab)]
             stringified_levels.append(formatted)

@@ -1,5 +1,5 @@
 # pylint: disable=W0223
-
+import textwrap
 import warnings
 import numpy as np
 from pandas.compat import range, zip
@@ -15,7 +15,7 @@ from pandas.core.dtypes.common import (
     is_sparse,
     _is_unorderable_exception,
     _ensure_platform_int)
-from pandas.core.dtypes.missing import isnull, _infer_fill_value
+from pandas.core.dtypes.missing import isna, _infer_fill_value
 
 from pandas.core.index import Index, MultiIndex
 
@@ -146,7 +146,8 @@ class _NDFrameIndexer(object):
             return self._convert_tuple(key, is_setter=True)
 
         axis = self.obj._get_axis(0)
-        if isinstance(axis, MultiIndex):
+
+        if isinstance(axis, MultiIndex) and self.name != 'iloc':
             try:
                 return axis.get_loc(key)
             except Exception:
@@ -760,10 +761,12 @@ class _NDFrameIndexer(object):
             for i, ix in enumerate(indexer):
                 ax = self.obj.axes[i]
                 if is_sequence(ix) or isinstance(ix, slice):
+                    if isinstance(ix, np.ndarray):
+                        ix = ix.ravel()
                     if idx is None:
-                        idx = ax[ix].ravel()
+                        idx = ax[ix]
                     elif cols is None:
-                        cols = ax[ix].ravel()
+                        cols = ax[ix]
                     else:
                         break
                 else:
@@ -1286,13 +1289,13 @@ class _IXIndexer(_NDFrameIndexer):
 
     def __init__(self, obj, name):
 
-        _ix_deprecation_warning = """
-.ix is deprecated. Please use
-.loc for label based indexing or
-.iloc for positional indexing
+        _ix_deprecation_warning = textwrap.dedent("""
+            .ix is deprecated. Please use
+            .loc for label based indexing or
+            .iloc for positional indexing
 
-See the documentation here:
-http://pandas.pydata.org/pandas-docs/stable/indexing.html#ix-indexer-is-deprecated"""  # noqa
+            See the documentation here:
+            http://pandas.pydata.org/pandas-docs/stable/indexing.html#ix-indexer-is-deprecated""")  # noqa
 
         warnings.warn(_ix_deprecation_warning,
                       DeprecationWarning, stacklevel=3)
@@ -1426,7 +1429,7 @@ class _LocIndexer(_LocationIndexer):
         else:
 
             def error():
-                if isnull(key):
+                if isna(key):
                     raise TypeError("cannot use label indexing with a null "
                                     "key")
                 raise KeyError("the label [%s] is not in the [%s]" %
@@ -1938,7 +1941,7 @@ def check_bool_indexer(ax, key):
     result = key
     if isinstance(key, ABCSeries) and not key.index.equals(ax):
         result = result.reindex(ax)
-        mask = isnull(result._values)
+        mask = isna(result._values)
         if mask.any():
             raise IndexingError('Unalignable boolean Series provided as '
                                 'indexer (index of the boolean Series and of '
@@ -1983,9 +1986,31 @@ def convert_from_missing_indexer_tuple(indexer, axes):
 
 
 def maybe_convert_indices(indices, n):
-    """ if we have negative indicies, translate to postive here
-    if have indicies that are out-of-bounds, raise an IndexError
     """
+    Attempt to convert indices into valid, positive indices.
+
+    If we have negative indices, translate to positive here.
+    If we have indices that are out-of-bounds, raise an IndexError.
+
+    Parameters
+    ----------
+    indices : array-like
+        The array of indices that we are to convert.
+    n : int
+        The number of elements in the array that we are indexing.
+
+    Returns
+    -------
+    valid_indices : array-like
+        An array-like of positive indices that correspond to the ones
+        that were passed in initially to this function.
+
+    Raises
+    ------
+    IndexError : one of the converted indices either exceeded the number
+        of elements (specified by `n`) OR was still negative.
+    """
+
     if isinstance(indices, list):
         indices = np.array(indices)
         if len(indices) == 0:

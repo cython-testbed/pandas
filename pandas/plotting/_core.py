@@ -11,17 +11,19 @@ import numpy as np
 
 from pandas.util._decorators import cache_readonly
 from pandas.core.base import PandasObject
-from pandas.core.dtypes.missing import notnull, remove_na_arraylike
+from pandas.core.dtypes.missing import isna, notna, remove_na_arraylike
 from pandas.core.dtypes.common import (
     is_list_like,
     is_integer,
     is_number,
     is_hashable,
     is_iterator)
-from pandas.core.common import AbstractMethodError, isnull, _try_sort
+from pandas.core.dtypes.generic import ABCSeries
+
+from pandas.core.common import AbstractMethodError, _try_sort
 from pandas.core.generic import _shared_docs, _shared_doc_kwargs
 from pandas.core.index import Index, MultiIndex
-from pandas.core.series import Series
+
 from pandas.core.indexes.period import PeriodIndex
 from pandas.compat import range, lrange, map, zip, string_types
 import pandas.compat as compat
@@ -334,7 +336,7 @@ class MPLPlot(object):
     def _compute_plot_data(self):
         data = self.data
 
-        if isinstance(data, Series):
+        if isinstance(data, ABCSeries):
             label = self.label
             if label is None and data.name is None:
                 label = 'None'
@@ -554,7 +556,7 @@ class MPLPlot(object):
                 """
                 x = index._mpl_repr()
             elif is_datetype:
-                self.data = self.data[notnull(self.data.index)]
+                self.data = self.data[notna(self.data.index)]
                 self.data = self.data.sort_index()
                 x = self.data.index._mpl_repr()
             else:
@@ -567,7 +569,7 @@ class MPLPlot(object):
 
     @classmethod
     def _plot(cls, ax, x, y, style=None, is_errorbar=False, **kwds):
-        mask = isnull(y)
+        mask = isna(y)
         if mask.any():
             y = np.ma.array(y)
             y = np.ma.masked_where(mask, y)
@@ -1290,7 +1292,7 @@ class HistPlot(LinePlot):
             # create common bin edge
             values = (self.data._convert(datetime=True)._get_numeric_data())
             values = np.ravel(values)
-            values = values[~isnull(values)]
+            values = values[~isna(values)]
 
             hist, self.bins = np.histogram(
                 values, bins=self.bins,
@@ -1305,7 +1307,7 @@ class HistPlot(LinePlot):
               stacking_id=None, **kwds):
         if column_num == 0:
             cls._initialize_stacker(ax, stacking_id, len(bins) - 1)
-        y = y[~isnull(y)]
+        y = y[~isna(y)]
 
         base = np.zeros(len(bins) - 1)
         bottom = bottom + \
@@ -1575,6 +1577,7 @@ class BoxPlot(LinePlot):
 
     def _make_plot(self):
         if self.subplots:
+            from pandas.core.series import Series
             self._return_obj = Series()
 
             for i, (label, y) in enumerate(self._iter_data()):
@@ -2034,6 +2037,18 @@ def boxplot(data, column=None, by=None, ax=None, fontsize=None,
     return result
 
 
+@Appender(_shared_docs['boxplot'] % _shared_doc_kwargs)
+def boxplot_frame(self, column=None, by=None, ax=None, fontsize=None, rot=0,
+                  grid=True, figsize=None, layout=None,
+                  return_type=None, **kwds):
+    import matplotlib.pyplot as plt
+    ax = boxplot(self, column=column, by=by, ax=ax, fontsize=fontsize,
+                 grid=grid, rot=rot, figsize=figsize, layout=layout,
+                 return_type=return_type, **kwds)
+    plt.draw_if_interactive()
+    return ax
+
+
 def scatter_plot(data, x, y, by=None, ax=None, figsize=None, grid=False,
                  **kwargs):
     """
@@ -2326,6 +2341,7 @@ def boxplot_frame_groupby(grouped, subplots=True, column=None, fontsize=None,
                               figsize=figsize, layout=layout)
         axes = _flatten(axes)
 
+        from pandas.core.series import Series
         ret = Series()
         for (key, group), ax in zip(grouped, axes):
             d = group.boxplot(ax=ax, column=column, fontsize=fontsize,
@@ -2397,7 +2413,6 @@ def _grouped_plot_by_column(plotf, data, columns=None, by=None,
 
     _axes = _flatten(axes)
 
-    result = Series()
     ax_values = []
 
     for i, col in enumerate(columns):
@@ -2410,6 +2425,7 @@ def _grouped_plot_by_column(plotf, data, columns=None, by=None,
         ax_values.append(re_plotf)
         ax.grid(grid)
 
+    from pandas.core.series import Series
     result = Series(ax_values, index=columns)
 
     # Return axes in multiplot case, maybe revisit later # 985

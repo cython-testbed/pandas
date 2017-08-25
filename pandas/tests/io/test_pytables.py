@@ -14,7 +14,7 @@ import pandas as pd
 from pandas import (Series, DataFrame, Panel, Panel4D, MultiIndex, Int64Index,
                     RangeIndex, Categorical, bdate_range,
                     date_range, timedelta_range, Index, DatetimeIndex,
-                    isnull)
+                    isna)
 
 from pandas.compat import is_platform_windows, PY3, PY35, BytesIO, text_type
 from pandas.io.formats.printing import pprint_thing
@@ -2011,7 +2011,7 @@ class TestHDFStore(Base):
         df['string'] = 'foo'
         df['float322'] = 1.
         df['float322'] = df['float322'].astype('float32')
-        df['bool'] = df['float322'] > 0
+        df['boolean'] = df['float322'] > 0
         df['time1'] = Timestamp('20130101')
         df['time2'] = Timestamp('20130102')
         check(df, tm.assert_frame_equal)
@@ -2141,7 +2141,7 @@ class TestHDFStore(Base):
             df1['string'] = 'foo'
             df1['float322'] = 1.
             df1['float322'] = df1['float322'].astype('float32')
-            df1['bool'] = df1['float32'] > 0
+            df1['boolean'] = df1['float32'] > 0
             df1['time1'] = Timestamp('20130101')
             df1['time2'] = Timestamp('20130102')
 
@@ -3948,7 +3948,7 @@ class TestHDFStore(Base):
 
             store.append('df2', df2, data_columns=['x'])
             result = store.select('df2', 'x!=none')
-            expected = df2[isnull(df2.x)]
+            expected = df2[isna(df2.x)]
             assert_frame_equal(result, expected)
 
             # int ==/!=
