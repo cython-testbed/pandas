@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # cython: profile=False
 
 import warnings
@@ -104,6 +105,14 @@ PyDateTime_IMPORT
 
 cdef int64_t NPY_NAT = util.get_nat()
 iNaT = NPY_NAT
+
+
+from tslibs.timezones cimport (
+    _is_utc, _is_tzlocal,
+    _treat_tz_as_dateutil, _treat_tz_as_pytz,
+    _get_zone,
+    _get_utcoffset)
+from tslibs.timezones import get_timezone, _get_utcoffset  # noqa
 
 
 cdef inline object create_timestamp_from_ts(
@@ -230,10 +239,6 @@ def ints_to_pytimedelta(ndarray[int64_t] arr, box=False):
                 result[i] = timedelta(microseconds=int(value) / 1000)
 
     return result
-
-
-cdef inline bint _is_tzlocal(object tz):
-    return isinstance(tz, _dateutil_tzlocal)
 
 
 cdef inline bint _is_fixed_offset(object tz):
@@ -531,9 +536,7 @@ class Timestamp(_Timestamp):
 
     @property
     def weekday_name(self):
-        out = get_date_name_field(
-            np.array([self.value], dtype=np.int64), 'weekday_name')
-        return out[0]
+        return self._get_named_field('weekday_name')
 
     @property
     def dayofyear(self):
@@ -544,10 +547,6 @@ class Timestamp(_Timestamp):
         return self._get_field('woy')
 
     weekofyear = week
-
-    @property
-    def microsecond(self):
-        return self._get_field('us')
 
     @property
     def quarter(self):
@@ -828,8 +827,6 @@ class NaTType(_NaT):
         cdef _NaT base
 
         base = _NaT.__new__(cls, 1, 1, 1)
-        base._day = -1
-        base._month = -1
         base.value = NPY_NAT
 
         return base
@@ -857,6 +854,9 @@ class NaTType(_NaT):
         return (__nat_unpickle, (None, ))
 
     def total_seconds(self):
+        """
+        Total duration of timedelta in seconds (to ns precision)
+        """
         # GH 10939
         return np.nan
 
@@ -1267,21 +1267,37 @@ cdef class _Timestamp(datetime):
         # same timezone if specified)
         return datetime.__sub__(self, other)
 
-    cpdef _get_field(self, field):
+    cdef int64_t _maybe_convert_value_to_local(self):
+        """Convert UTC i8 value to local i8 value if tz exists"""
+        cdef:
+            int64_t val
         val = self.value
         if self.tz is not None and not _is_utc(self.tz):
             val = tz_convert_single(self.value, 'UTC', self.tz)
+        return val
+
+    cpdef _get_field(self, field):
+        cdef:
+            int64_t val
+            ndarray[int32_t] out
+        val = self._maybe_convert_value_to_local()
         out = get_date_field(np.array([val], dtype=np.int64), field)
         return int(out[0])
+
+    cpdef _get_named_field(self, field):
+        cdef:
+            int64_t val
+            ndarray[object] out
+        val = self._maybe_convert_value_to_local()
+        out = get_date_name_field(np.array([val], dtype=np.int64), field)
+        return out[0]
 
     cpdef _get_start_end_field(self, field):
         month_kw = self.freq.kwds.get(
             'startingMonth', self.freq.kwds.get(
                 'month', 12)) if self.freq else 12
         freqstr = self.freqstr if self.freq else None
-        val = self.value
-        if self.tz is not None and not _is_utc(self.tz):
-            val = tz_convert_single(self.value, 'UTC', self.tz)
+        val = self._maybe_convert_value_to_local()
         out = get_start_end_field(
             np.array([val], dtype=np.int64), field, freqstr, month_kw)
         return out[0]
@@ -1429,11 +1445,6 @@ cdef class _TSObject:
         def __get__(self):
             return self.value
 
-cpdef _get_utcoffset(tzinfo, obj):
-    try:
-        return tzinfo._utcoffset
-    except AttributeError:
-        return tzinfo.utcoffset(obj)
 
 # helper to extract datetime and int64 from several different possibilities
 cdef convert_to_tsobject(object ts, object tz, object unit,
@@ -1696,50 +1707,6 @@ def _localize_pydatetime(object dt, object tz):
         return tz.localize(dt)
     except AttributeError:
         return dt.replace(tzinfo=tz)
-
-
-def get_timezone(tz):
-    return _get_zone(tz)
-
-cdef inline bint _is_utc(object tz):
-    return tz is UTC or isinstance(tz, _dateutil_tzutc)
-
-cdef inline object _get_zone(object tz):
-    """
-    We need to do several things here:
-    1) Distinguish between pytz and dateutil timezones
-    2) Not be over-specific (e.g. US/Eastern with/without DST is same *zone*
-       but a different tz object)
-    3) Provide something to serialize when we're storing a datetime object
-       in pytables.
-
-    We return a string prefaced with dateutil if it's a dateutil tz, else just
-    the tz name. It needs to be a string so that we can serialize it with
-    UJSON/pytables. maybe_get_tz (below) is the inverse of this process.
-    """
-    if _is_utc(tz):
-        return 'UTC'
-    else:
-        if _treat_tz_as_dateutil(tz):
-            if '.tar.gz' in tz._filename:
-                raise ValueError(
-                    'Bad tz filename. Dateutil on python 3 on windows has a '
-                    'bug which causes tzfile._filename to be the same for all '
-                    'timezone files. Please construct dateutil timezones '
-                    'implicitly by passing a string like "dateutil/Europe'
-                    '/London" when you construct your pandas objects instead '
-                    'of passing a timezone object. See '
-                    'https://github.com/pandas-dev/pandas/pull/7362')
-            return 'dateutil/' + tz._filename
-        else:
-            # tz is a pytz timezone or unknown.
-            try:
-                zone = tz.zone
-                if zone is None:
-                    return tz
-                return zone
-            except AttributeError:
-                return tz
 
 
 cpdef inline object maybe_get_tz(object tz):
@@ -2621,8 +2588,6 @@ cdef class _Timedelta(timedelta):
             int ndim
 
         if isinstance(other, _Timedelta):
-            if isinstance(other, _NaT):
-                return _cmp_nat_dt(other, self, _reverse_ops[op])
             ots = other
         elif isinstance(other, timedelta):
             ots = Timedelta(other)
@@ -3881,7 +3846,7 @@ fields = ['year', 'quarter', 'month', 'day', 'hour',
           'minute', 'second', 'millisecond', 'microsecond', 'nanosecond',
           'week', 'dayofyear', 'weekofyear', 'days_in_month', 'daysinmonth',
           'dayofweek', 'weekday_name', 'days', 'seconds', 'microseconds',
-          'nanoseconds', 'qyear', 'quarter']
+          'nanoseconds', 'qyear']
 for field in fields:
     prop = property(fget=lambda self: np.nan)
     setattr(NaTType, field, prop)
@@ -3893,8 +3858,9 @@ for field in fields:
 _nat_methods = ['date', 'now', 'replace', 'to_pydatetime',
                 'today', 'round', 'floor', 'ceil', 'tz_convert',
                 'tz_localize']
-_nan_methods = ['weekday', 'isoweekday', 'total_seconds']
-_implemented_methods = ['to_datetime', 'to_datetime64', 'isoformat']
+_nan_methods = ['weekday', 'isoweekday']
+_implemented_methods = [
+    'to_datetime', 'to_datetime64', 'isoformat', 'total_seconds']
 _implemented_methods.extend(_nat_methods)
 _implemented_methods.extend(_nan_methods)
 
@@ -3922,7 +3888,7 @@ for _method_name in _nat_methods:
         def f(*args, **kwargs):
             return NaT
         f.__name__ = func_name
-        f.__doc__ = _get_docstring(_method_name)
+        f.__doc__ = _get_docstring(func_name)
         return f
 
     setattr(NaTType, _method_name, _make_nat_func(_method_name))
@@ -3934,7 +3900,7 @@ for _method_name in _nan_methods:
         def f(*args, **kwargs):
             return np.nan
         f.__name__ = func_name
-        f.__doc__ = _get_docstring(_method_name)
+        f.__doc__ = _get_docstring(func_name)
         return f
 
     setattr(NaTType, _method_name, _make_nan_func(_method_name))
@@ -3952,7 +3918,7 @@ for _maybe_method_name in dir(NaTType):
             def f(*args, **kwargs):
                 raise ValueError("NaTType does not support " + func_name)
             f.__name__ = func_name
-            f.__doc__ = _get_docstring(_method_name)
+            f.__doc__ = _get_docstring(func_name)
             return f
 
         setattr(NaTType, _maybe_method_name,
@@ -4273,13 +4239,6 @@ def tz_convert_single(int64_t val, object tz1, object tz2):
 
 # Timezone data caches, key is the pytz string or dateutil file name.
 dst_cache = {}
-
-cdef inline bint _treat_tz_as_pytz(object tz):
-    return hasattr(tz, '_utc_transition_times') and hasattr(
-        tz, '_transition_info')
-
-cdef inline bint _treat_tz_as_dateutil(object tz):
-    return hasattr(tz, '_trans_list') and hasattr(tz, '_trans_idx')
 
 
 def _p_tz_cache_key(tz):
@@ -4619,7 +4578,6 @@ def build_field_sarray(ndarray[int64_t] dtindex):
     """
     cdef:
         Py_ssize_t i, count = 0
-        int isleap
         pandas_datetimestruct dts
         ndarray[int32_t] years, months, days, hours, minutes, seconds, mus
 
@@ -5269,7 +5227,6 @@ cpdef _isleapyear_arr(ndarray years):
 def monthrange(int64_t year, int64_t month):
     cdef:
         int64_t days
-        int64_t day_of_week
 
     if month < 1 or month > 12:
         raise ValueError("bad month number 0; must be 1-12")
