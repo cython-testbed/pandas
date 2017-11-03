@@ -177,7 +177,9 @@ class TestConcatAppendCommon(ConcatenateBase):
             tm.assert_series_equal(res, exp, check_index_type=True)
 
             # cannot append non-index
-            msg = "cannot concatenate a non-NDFrame object"
+            msg = ('cannot concatenate object of type \"(.+?)\";'
+                   ' only pd.Series, pd.DataFrame, and pd.Panel'
+                   ' \(deprecated\) objs are valid')
             with tm.assert_raises_regex(TypeError, msg):
                 pd.Series(vals1).append(vals2)
 
@@ -646,7 +648,7 @@ class TestConcatAppendCommon(ConcatenateBase):
         s1 = pd.Series([np.nan, np.nan], dtype='category')
         s2 = pd.Series([np.nan, np.nan])
 
-        exp = pd.Series([np.nan, np.nan, np.nan, np.nan], dtype=object)
+        exp = pd.Series([np.nan, np.nan, np.nan, np.nan])
         tm.assert_series_equal(pd.concat([s1, s2], ignore_index=True), exp)
         tm.assert_series_equal(s1.append(s2, ignore_index=True), exp)
         tm.assert_series_equal(pd.concat([s2, s1], ignore_index=True), exp)
@@ -1592,7 +1594,9 @@ class TestConcatenate(ConcatenateBase):
         s2 = Series(randn(len(dates)), index=dates, name='value')
 
         result = concat([s1, s2], axis=1, ignore_index=True)
-        assert np.array_equal(result.columns, [0, 1])
+        expected = Index([0, 1])
+
+        tm.assert_index_equal(result.columns, expected)
 
     def test_concat_iterables(self):
         from collections import deque, Iterable

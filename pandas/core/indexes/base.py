@@ -2484,7 +2484,13 @@ class Index(IndexOpsMixin, PandasObject):
             the index at the matching location most satisfy the equation
             ``abs(index[loc] - key) <= tolerance``.
 
-            .. versionadded:: 0.17.0
+            Tolerance may be a scalar
+            value, which applies the same tolerance to all values, or
+            list-like, which applies variable tolerance per element. List-like
+            includes list, tuple, array, Series, and must be the same size as
+            the index and its dtype must exactly match the index's type.
+
+            .. versionadded:: 0.21.0 (list-like tolerance)
 
         Returns
         -------
@@ -2627,7 +2633,13 @@ class Index(IndexOpsMixin, PandasObject):
             matches. The values of the index at the matching locations most
             satisfy the equation ``abs(index[indexer] - target) <= tolerance``.
 
-            .. versionadded:: 0.17.0
+            Tolerance may be a scalar value, which applies the same tolerance
+            to all values, or list-like, which applies variable tolerance per
+            element. List-like includes list, tuple, array, Series, and must be
+            the same size as the index and its dtype must exactly match the
+            index's type.
+
+            .. versionadded:: 0.21.0 (list-like tolerance)
 
         Examples
         --------
@@ -2647,7 +2659,7 @@ class Index(IndexOpsMixin, PandasObject):
         method = missing.clean_reindex_fill_method(method)
         target = _ensure_index(target)
         if tolerance is not None:
-            tolerance = self._convert_tolerance(tolerance)
+            tolerance = self._convert_tolerance(tolerance, target)
 
         # Treat boolean labels passed to a numeric index as not found. Without
         # this fix False and True would be treated as 0 and 1 respectively.
@@ -2683,10 +2695,15 @@ class Index(IndexOpsMixin, PandasObject):
                                  'backfill or nearest reindexing')
 
             indexer = self._engine.get_indexer(target._values)
+
         return _ensure_platform_int(indexer)
 
-    def _convert_tolerance(self, tolerance):
+    def _convert_tolerance(self, tolerance, target):
         # override this method on subclasses
+        tolerance = np.asarray(tolerance)
+        if target.size != tolerance.size and tolerance.size > 1:
+            raise ValueError('list-like tolerance size must match '
+                             'target index size')
         return tolerance
 
     def _get_fill_indexer(self, target, method, limit=None, tolerance=None):
@@ -3411,8 +3428,8 @@ class Index(IndexOpsMixin, PandasObject):
 
     def slice_indexer(self, start=None, end=None, step=None, kind=None):
         """
-        For an ordered Index, compute the slice indexer for input labels and
-        step
+        For an ordered or unique index, compute the slice indexer for input
+        labels and step.
 
         Parameters
         ----------
@@ -3425,11 +3442,28 @@ class Index(IndexOpsMixin, PandasObject):
 
         Returns
         -------
-        indexer : ndarray or slice
+        indexer : slice
+
+        Raises
+        ------
+        KeyError : If key does not exist, or key is not unique and index is
+            not ordered.
 
         Notes
         -----
         This function assumes that the data is sorted, so use at your own peril
+
+        Examples
+        ---------
+        This is a method on all index types. For example you can do:
+
+        >>> idx = pd.Index(list('abcd'))
+        >>> idx.slice_indexer(start='b', end='c')
+        slice(1, 3)
+
+        >>> idx = pd.MultiIndex.from_arrays([list('abcd'), list('efgh')])
+        >>> idx.slice_indexer(start='b', end=('c', 'g'))
+        slice(1, 3)
         """
         start_slice, end_slice = self.slice_locs(start, end, step=step,
                                                  kind=kind)

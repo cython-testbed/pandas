@@ -767,7 +767,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
                 raise TypeError("DatetimeIndex subtraction must have the same "
                                 "timezones or no timezones")
             result = self._sub_datelike_dti(other)
-        elif isinstance(other, (libts.Timestamp, datetime)):
+        elif isinstance(other, datetime):
             other = Timestamp(other)
             if other is libts.NaT:
                 result = self._nat_new(box=False)
@@ -1016,11 +1016,9 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
 
     def to_perioddelta(self, freq):
         """
-        Calcuates TimedeltaIndex of difference between index
+        Calculates TimedeltaIndex of difference between index
         values and index converted to PeriodIndex at specified
         freq.  Used for vectorized offsets
-
-        .. versionadded:: 0.17.0
 
         Parameters
         ----------
@@ -1423,7 +1421,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         if tolerance is not None:
             # try converting tolerance now, so errors don't get swallowed by
             # the try/except clauses below
-            tolerance = self._convert_tolerance(tolerance)
+            tolerance = self._convert_tolerance(tolerance, np.asarray(key))
 
         if isinstance(key, datetime):
             # needed to localize naive datetimes
@@ -1447,7 +1445,12 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
             try:
                 stamp = Timestamp(key, tz=self.tz)
                 return Index.get_loc(self, stamp, method, tolerance)
-            except (KeyError, ValueError):
+            except KeyError:
+                raise KeyError(key)
+            except ValueError as e:
+                # list-like tolerance size must match target index size
+                if 'list-like' in str(e):
+                    raise e
                 raise KeyError(key)
 
     def _maybe_cast_slice_bound(self, label, side, kind):

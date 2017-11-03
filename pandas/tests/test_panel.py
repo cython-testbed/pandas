@@ -1424,6 +1424,11 @@ class TestPanel(PanelTests, CheckIndexing, SafeForLongAndSparse,
             result = self.panel.reindex(minor=new_minor)
             assert_frame_equal(result['ItemB'], ref.reindex(columns=new_minor))
 
+            # raise exception put both major and major_axis
+            pytest.raises(Exception, self.panel.reindex,
+                          minor_axis=new_minor,
+                          minor=new_minor)
+
             # this ok
             result = self.panel.reindex()
             assert_panel_equal(result, self.panel)
@@ -1451,14 +1456,17 @@ class TestPanel(PanelTests, CheckIndexing, SafeForLongAndSparse,
             expected1 = Panel(panel.values).iloc[:, [0, 1]]
             expected2 = Panel(panel.values).iloc[:, :, [0, 1]]
 
-        result = panel.reindex([0, 1], axis=0)
-        assert_panel_equal(result, expected0)
+            result = panel.reindex([0, 1], axis=0)
+            assert_panel_equal(result, expected0)
 
-        result = panel.reindex([0, 1], axis=1)
-        assert_panel_equal(result, expected1)
+            result = panel.reindex([0, 1], axis=1)
+            assert_panel_equal(result, expected1)
 
-        result = panel.reindex([0, 1], axis=2)
-        assert_panel_equal(result, expected2)
+            result = panel.reindex([0, 1], axis=2)
+            assert_panel_equal(result, expected2)
+
+            result = panel.reindex([0, 1], axis=2)
+            assert_panel_equal(result, expected2)
 
     def test_reindex_multi(self):
         with catch_warnings(record=True):
