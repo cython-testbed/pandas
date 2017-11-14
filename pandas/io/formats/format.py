@@ -84,12 +84,23 @@ _VALID_JUSTIFY_PARAMETERS = ("left", "right", "center", "justify",
                              "match-parent", "initial", "unset")
 
 justify_docstring = """
-    justify : {'left', 'right', 'center', 'justify',
-               'justify-all', 'start', 'end', 'inherit',
-               'match-parent', 'initial', 'unset'}, default None
+    justify : str, default None
         How to justify the column labels. If None uses the option from
         the print configuration (controlled by set_option), 'right' out
-        of the box."""
+        of the box. Valid values are
+
+        * left
+        * right
+        * center
+        * justify
+        * justify-all
+        * start
+        * end
+        * inherit
+        * match-parent
+        * initial
+        * unset
+"""
 
 return_docstring = """
 
@@ -1695,7 +1706,7 @@ class CSVFormatter(object):
             else:
                 encoded_labels = []
 
-        if not has_mi_columns:
+        if not has_mi_columns or has_aliases:
             encoded_labels += list(write_cols)
             writer.writerow(encoded_labels)
         else:
