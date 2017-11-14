@@ -132,7 +132,7 @@ if [ -e ${REQ} ]; then
     time conda install -n pandas --file=${REQ} || exit 1
 fi
 pip uninstall --yes cython
-pip install https://github.com/cython/cython/archive/109f07b96f382247e0816df06334c509d57479be.zip --install-option=--no-cython-compile
+pip install https://github.com/cython/cython/archive/177dbe83d5c7551cb2cad790cb5a963b54cf19ef.zip --install-option=--no-cython-compile
 
 # we may have additional pip installs
 echo
