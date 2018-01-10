@@ -11,6 +11,7 @@ import numpy as np
 
 from pandas.util._decorators import cache_readonly
 from pandas.core.base import PandasObject
+from pandas.core.config import get_option
 from pandas.core.dtypes.missing import isna, notna, remove_na_arraylike
 from pandas.core.dtypes.common import (
     is_list_like,
@@ -18,7 +19,7 @@ from pandas.core.dtypes.common import (
     is_number,
     is_hashable,
     is_iterator)
-from pandas.core.dtypes.generic import ABCSeries
+from pandas.core.dtypes.generic import ABCSeries, ABCDataFrame
 
 from pandas.core.common import AbstractMethodError, _try_sort, _any_not_none
 from pandas.core.generic import _shared_docs, _shared_doc_kwargs
@@ -40,16 +41,13 @@ from pandas.plotting._tools import (_subplots, _flatten, table,
                                     _get_xlim, _set_ticks_props,
                                     format_date_labels)
 
-_registered = False
-
-
-def _setup():
-    # delay the import of matplotlib until nescessary
-    global _registered
-    if not _registered:
-        from pandas.plotting import _converter
-        _converter.register()
-        _registered = True
+try:
+    from pandas.plotting import _converter
+except ImportError:
+    pass
+else:
+    if get_option('plotting.matplotlib.register_converters'):
+        _converter.register(explicit=True)
 
 
 def _get_standard_kind(kind):
@@ -99,7 +97,7 @@ class MPLPlot(object):
                  secondary_y=False, colormap=None,
                  table=False, layout=None, **kwds):
 
-        _setup()
+        _converter._WARN = False
         self.data = data
         self.by = by
 
@@ -383,12 +381,16 @@ class MPLPlot(object):
 
     def _post_plot_logic_common(self, ax, data):
         """Common post process for each axes"""
-        labels = [pprint_thing(key) for key in data.index]
-        labels = dict(zip(range(len(data.index)), labels))
+
+        def get_label(i):
+            try:
+                return pprint_thing(data.index[i])
+            except Exception:
+                return ''
 
         if self.orientation == 'vertical' or self.orientation is None:
             if self._need_to_set_index:
-                xticklabels = [labels.get(x, '') for x in ax.get_xticks()]
+                xticklabels = [get_label(x) for x in ax.get_xticks()]
                 ax.set_xticklabels(xticklabels)
             self._apply_axis_properties(ax.xaxis, rot=self.rot,
                                         fontsize=self.fontsize)
@@ -400,7 +402,7 @@ class MPLPlot(object):
 
         elif self.orientation == 'horizontal':
             if self._need_to_set_index:
-                yticklabels = [labels.get(y, '') for y in ax.get_yticks()]
+                yticklabels = [get_label(y) for y in ax.get_yticks()]
                 ax.set_yticklabels(yticklabels)
             self._apply_axis_properties(ax.yaxis, rot=self.rot,
                                         fontsize=self.fontsize)
@@ -608,7 +610,7 @@ class MPLPlot(object):
         if isinstance(self.data.index, MultiIndex):
             name = self.data.index.names
             if _any_not_none(*name):
-                name = ','.join([pprint_thing(x) for x in name])
+                name = ','.join(pprint_thing(x) for x in name)
             else:
                 name = None
         else:
@@ -1678,9 +1680,8 @@ def _plot(data, x=None, y=None, subplots=False,
     else:
         raise ValueError("%r is not a valid plot kind" % kind)
 
-    from pandas import DataFrame
     if kind in _dataframe_kinds:
-        if isinstance(data, DataFrame):
+        if isinstance(data, ABCDataFrame):
             plot_obj = klass(data, x=x, y=y, subplots=subplots, ax=ax,
                              kind=kind, **kwds)
         else:
@@ -1688,7 +1689,7 @@ def _plot(data, x=None, y=None, subplots=False,
                              % kind)
 
     elif kind in _series_kinds:
-        if isinstance(data, DataFrame):
+        if isinstance(data, ABCDataFrame):
             if y is None and subplots is False:
                 msg = "{0} requires either y column or 'subplots=True'"
                 raise ValueError(msg.format(kind))
@@ -1700,15 +1701,19 @@ def _plot(data, x=None, y=None, subplots=False,
                 data.index.name = y
         plot_obj = klass(data, subplots=subplots, ax=ax, kind=kind, **kwds)
     else:
-        if isinstance(data, DataFrame):
+        if isinstance(data, ABCDataFrame):
             if x is not None:
                 if is_integer(x) and not data.columns.holds_integer():
                     x = data.columns[x]
+                elif not isinstance(data[x], ABCSeries):
+                    raise ValueError("x must be a label or position")
                 data = data.set_index(x)
 
             if y is not None:
                 if is_integer(y) and not data.columns.holds_integer():
                     y = data.columns[y]
+                elif not isinstance(data[y], ABCSeries):
+                    raise ValueError("y must be a label or position")
                 label = kwds['label'] if 'label' in kwds else y
                 series = data[y].copy()  # Don't modify
                 series.name = label
@@ -1859,7 +1864,7 @@ _shared_docs['plot'] = """
     mark_right : boolean, default True
         When using a secondary_y axis, automatically mark the column
         labels with "(right)" in the legend
-    kwds : keywords
+    `**kwds` : keywords
         Options to pass to matplotlib plotting method
 
     Returns
@@ -1946,7 +1951,7 @@ _shared_docs['boxplot'] = """
     return_type : {None, 'axes', 'dict', 'both'}, default None
         The kind of object to return. The default is ``axes``
         'axes' returns the matplotlib axes the boxplot is drawn on;
-        'dict' returns a dictionary  whose values are the matplotlib
+        'dict' returns a dictionary whose values are the matplotlib
         Lines of the boxplot;
         'both' returns a namedtuple with the axes and dict.
 
@@ -1955,8 +1960,9 @@ _shared_docs['boxplot'] = """
         array of axes is returned with the same shape as ``layout``.
         See the prose documentation for more.
 
-    kwds : other plotting keyword arguments to be passed to matplotlib boxplot
-           function
+    `**kwds` : Keyword Arguments
+        All other plotting keyword arguments to be passed to
+        matplotlib's boxplot function
 
     Returns
     -------
@@ -2059,7 +2065,7 @@ def boxplot_frame(self, column=None, by=None, ax=None, fontsize=None, rot=0,
                   grid=True, figsize=None, layout=None,
                   return_type=None, **kwds):
     import matplotlib.pyplot as plt
-    _setup()
+    _converter._WARN = False
     ax = boxplot(self, column=column, by=by, ax=ax, fontsize=fontsize,
                  grid=grid, rot=rot, figsize=figsize, layout=layout,
                  return_type=return_type, **kwds)
@@ -2152,10 +2158,10 @@ def hist_frame(data, column=None, by=None, grid=True, xlabelsize=None,
         Tuple of (rows, columns) for the layout of the histograms
     bins : integer, default 10
         Number of histogram bins to be used
-    kwds : other plotting keyword arguments
+    `**kwds` : other plotting keyword arguments
         To be passed to hist function
     """
-    _setup()
+    _converter._WARN = False
     if by is not None:
         axes = grouped_hist(data, column=column, by=by, ax=ax, grid=grid,
                             figsize=figsize, sharex=sharex, sharey=sharey,
@@ -2215,7 +2221,7 @@ def hist_series(self, by=None, ax=None, grid=True, xlabelsize=None,
         figure size in inches by default
     bins: integer, default 10
         Number of histogram bins to be used
-    kwds : keywords
+    `**kwds` : keywords
         To be passed to the actual plotting function
 
     Notes
@@ -2289,6 +2295,8 @@ def grouped_hist(data, column=None, by=None, ax=None, bins=50, figsize=None,
     -------
     axes: collection of Matplotlib Axes
     """
+    _converter._WARN = False
+
     def plot_group(group, ax):
         ax.hist(group.dropna().values, bins=bins, **kwargs)
 
@@ -2327,8 +2335,9 @@ def boxplot_frame_groupby(grouped, subplots=True, column=None, fontsize=None,
     figsize : A tuple (width, height) in inches
     layout : tuple (optional)
         (rows, columns) for the layout of the plot
-    kwds : other plotting keyword arguments to be passed to matplotlib boxplot
-           function
+    `**kwds` : Keyword Arguments
+        All other plotting keyword arguments to be passed to
+        matplotlib's boxplot function
 
     Returns
     -------
@@ -2352,7 +2361,7 @@ def boxplot_frame_groupby(grouped, subplots=True, column=None, fontsize=None,
     >>> grouped = df.unstack(level='lvl1').groupby(level=0, axis=1)
     >>> boxplot_frame_groupby(grouped, subplots=False)
     """
-    _setup()
+    _converter._WARN = False
     if subplots is True:
         naxes = len(grouped)
         fig, axes = _subplots(naxes=naxes, squeeze=False,
@@ -2505,7 +2514,7 @@ class SeriesPlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2520,7 +2529,7 @@ class SeriesPlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2535,7 +2544,7 @@ class SeriesPlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2550,7 +2559,7 @@ class SeriesPlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2567,7 +2576,7 @@ class SeriesPlotMethods(BasePlotMethods):
         ----------
         bins: integer, default 10
             Number of histogram bins to be used
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2582,7 +2591,7 @@ class SeriesPlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2599,7 +2608,7 @@ class SeriesPlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2614,7 +2623,7 @@ class SeriesPlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.Series.plot`.
 
         Returns
@@ -2665,7 +2674,7 @@ class FramePlotMethods(BasePlotMethods):
         ----------
         x, y : label or position, optional
             Coordinates for each point.
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2682,7 +2691,7 @@ class FramePlotMethods(BasePlotMethods):
         ----------
         x, y : label or position, optional
             Coordinates for each point.
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2699,7 +2708,7 @@ class FramePlotMethods(BasePlotMethods):
         ----------
         x, y : label or position, optional
             Coordinates for each point.
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2716,7 +2725,7 @@ class FramePlotMethods(BasePlotMethods):
         ----------
         by : string or sequence
             Column in the DataFrame to group by.
-        \*\*kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2735,7 +2744,7 @@ class FramePlotMethods(BasePlotMethods):
             Column in the DataFrame to group by.
         bins: integer, default 10
             Number of histogram bins to be used
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2750,7 +2759,7 @@ class FramePlotMethods(BasePlotMethods):
 
         Parameters
         ----------
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2769,7 +2778,7 @@ class FramePlotMethods(BasePlotMethods):
         ----------
         x, y : label or position, optional
             Coordinates for each point.
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2786,7 +2795,7 @@ class FramePlotMethods(BasePlotMethods):
         ----------
         y : label or position, optional
             Column to plot.
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2807,7 +2816,7 @@ class FramePlotMethods(BasePlotMethods):
             Size of each point.
         c : label or position, optional
             Color of each point.
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns
@@ -2832,7 +2841,7 @@ class FramePlotMethods(BasePlotMethods):
             a single number (e.g. `mean`, `max`, `sum`, `std`).
         gridsize : int, optional
             Number of bins.
-        **kwds : optional
+        `**kwds` : optional
             Keyword arguments to pass on to :py:meth:`pandas.DataFrame.plot`.
 
         Returns

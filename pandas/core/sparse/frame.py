@@ -131,8 +131,7 @@ class SparseDataFrame(DataFrame):
         # pre-filter out columns if we passed it
         if columns is not None:
             columns = _ensure_index(columns)
-            data = dict((k, v) for k, v in compat.iteritems(data)
-                        if k in columns)
+            data = {k: v for k, v in compat.iteritems(data) if k in columns}
         else:
             columns = Index(_try_sort(list(data.keys())))
 
@@ -173,7 +172,7 @@ class SparseDataFrame(DataFrame):
         """ Init self from ndarray or list of lists """
         data = _prep_ndarray(data, copy=False)
         index, columns = self._prep_index(data, index, columns)
-        data = dict([(idx, data[:, i]) for i, idx in enumerate(columns)])
+        data = {idx: data[:, i] for i, idx in enumerate(columns)}
         return self._init_dict(data, index, columns, dtype)
 
     def _init_spmatrix(self, data, index, columns, dtype=None,
@@ -307,7 +306,7 @@ class SparseDataFrame(DataFrame):
         -------
         df : DataFrame
         """
-        data = dict((k, v.to_dense()) for k, v in compat.iteritems(self))
+        data = {k: v.to_dense() for k, v in compat.iteritems(self)}
         return DataFrame(data, index=self.index, columns=self.columns)
 
     def _apply_columns(self, func):
@@ -347,8 +346,8 @@ class SparseDataFrame(DataFrame):
         Ratio of non-sparse points to total (dense) data points
         represented in the frame
         """
-        tot_nonsparse = sum([ser.sp_index.npoints
-                             for _, ser in compat.iteritems(self)])
+        tot_nonsparse = sum(ser.sp_index.npoints
+                            for _, ser in compat.iteritems(self))
         tot = len(self.index) * len(self.columns)
         return tot_nonsparse / float(tot)
 
@@ -697,7 +696,7 @@ class SparseDataFrame(DataFrame):
             raise NotImplementedError("'method' argument is not supported")
 
         # TODO: fill value handling
-        sdict = dict((k, v) for k, v in compat.iteritems(self) if k in columns)
+        sdict = {k: v for k, v in compat.iteritems(self) if k in columns}
         return self._constructor(
             sdict, index=self.index, columns=columns,
             default_fill_value=self._default_fill_value).__finalize__(self)
@@ -821,12 +820,12 @@ class SparseDataFrame(DataFrame):
 
         return self.apply(lambda x: x.cumsum(), axis=axis)
 
-    @Appender(generic._shared_docs['isna'])
+    @Appender(generic._shared_docs['isna'] % _shared_doc_kwargs)
     def isna(self):
         return self._apply_columns(lambda x: x.isna())
     isnull = isna
 
-    @Appender(generic._shared_docs['notna'])
+    @Appender(generic._shared_docs['notna'] % _shared_doc_kwargs)
     def notna(self):
         return self._apply_columns(lambda x: x.notna())
     notnull = notna
@@ -862,11 +861,17 @@ class SparseDataFrame(DataFrame):
                 new_series, index=self.index, columns=self.columns,
                 default_fill_value=self._default_fill_value,
                 default_kind=self._default_kind).__finalize__(self)
-        else:
-            if not broadcast:
-                return self._apply_standard(func, axis, reduce=reduce)
-            else:
-                return self._apply_broadcast(func, axis)
+
+        from pandas.core.apply import frame_apply
+        op = frame_apply(self,
+                         func=func,
+                         axis=axis,
+                         reduce=reduce)
+
+        if broadcast:
+            return op.apply_broadcast()
+
+        return op.apply_standard()
 
     def applymap(self, func):
         """

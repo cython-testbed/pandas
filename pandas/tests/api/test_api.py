@@ -51,8 +51,7 @@ class TestPDApi(Base):
                'TimedeltaIndex', 'Timestamp', 'Interval', 'IntervalIndex']
 
     # these are already deprecated; awaiting removal
-    deprecated_classes = ['WidePanel', 'Panel4D', 'TimeGrouper',
-                          'SparseList', 'Expr', 'Term']
+    deprecated_classes = ['WidePanel', 'TimeGrouper', 'Expr', 'Term']
 
     # these should be deprecated in the future
     deprecated_classes_in_future = ['Panel']
@@ -103,7 +102,7 @@ class TestPDApi(Base):
                         'rolling_kurt', 'rolling_max', 'rolling_mean',
                         'rolling_median', 'rolling_min', 'rolling_quantile',
                         'rolling_skew', 'rolling_std', 'rolling_sum',
-                        'rolling_var', 'rolling_window', 'ordered_merge',
+                        'rolling_var', 'rolling_window',
                         'pnow', 'match', 'groupby', 'get_store',
                         'plot_params', 'scatter_matrix']
 

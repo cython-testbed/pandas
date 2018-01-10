@@ -24,7 +24,7 @@ from pandas.core.dtypes.common import (
 from pandas.core.dtypes.missing import array_equivalent
 
 import numpy as np
-from pandas import (Series, DataFrame, Panel, Panel4D, Index,
+from pandas import (Series, DataFrame, Panel, Index,
                     MultiIndex, Int64Index, isna, concat, to_datetime,
                     SparseSeries, SparseDataFrame, PeriodIndex,
                     DatetimeIndex, TimedeltaIndex)
@@ -97,7 +97,7 @@ def _ensure_term(where, scope_level):
     create the terms here with a frame_level=2 (we are 2 levels down)
     """
 
-    # only consider list/tuple here as an ndarray is automaticaly a coordinate
+    # only consider list/tuple here as an ndarray is automatically a coordinate
     # list
     level = scope_level + 1
     if isinstance(where, (list, tuple)):
@@ -180,7 +180,6 @@ _TYPE_MAP = {
     DataFrame: u('frame'),
     SparseDataFrame: u('sparse_frame'),
     Panel: u('wide'),
-    Panel4D: u('ndim'),
 }
 
 # storer class map
@@ -203,7 +202,6 @@ _TABLE_MAP = {
     u('appendable_frame'): 'AppendableFrameTable',
     u('appendable_multiframe'): 'AppendableMultiFrameTable',
     u('appendable_panel'): 'AppendablePanelTable',
-    u('appendable_ndim'): 'AppendableNDimTable',
     u('worm'): 'WORMTable',
     u('legacy_frame'): 'LegacyFrameTable',
     u('legacy_panel'): 'LegacyPanelTable',
@@ -212,8 +210,7 @@ _TABLE_MAP = {
 # axes map
 _AXES_MAP = {
     DataFrame: [0],
-    Panel: [1, 2],
-    Panel4D: [1, 2, 3],
+    Panel: [1, 2]
 }
 
 # register our configuration options
@@ -248,7 +245,7 @@ def _tables():
         _table_mod = tables
 
         # version requirements
-        if LooseVersion(tables.__version__) < '3.0.0':
+        if LooseVersion(tables.__version__) < LooseVersion('3.0.0'):
             raise ImportError("PyTables version >= 3.0.0 is required")
 
         # set the file open policy
@@ -301,7 +298,7 @@ def read_hdf(path_or_buf, key=None, mode='r', **kwargs):
             contains a single pandas object.
         mode : string, {'r', 'r+', 'a'}, default 'r'. Mode to use when opening
             the file. Ignored if path_or_buf is a pd.HDFStore.
-        where : list of Term (or convertable) objects, optional
+        where : list of Term (or convertible) objects, optional
         start : optional, integer (defaults to None), row number to start
             selection
         stop  : optional, integer (defaults to None), row number to stop
@@ -498,7 +495,7 @@ class HDFStore(StringMixin):
                              (type(self).__name__, name))
 
     def __contains__(self, key):
-        """ check for existance of this key
+        """ check for existence of this key
               can match the exact pathname or the pathnm w/o the leading '/'
               """
         node = self.get_node(key)
@@ -679,7 +676,7 @@ class HDFStore(StringMixin):
         Parameters
         ----------
         key : object
-        where : list of Term (or convertable) objects, optional
+        where : list of Term (or convertible) objects, optional
         start : integer (defaults to None), row number to start selection
         stop  : integer (defaults to None), row number to stop selection
         columns : a list of columns that if not None, will limit the return
@@ -724,7 +721,7 @@ class HDFStore(StringMixin):
         Parameters
         ----------
         key : object
-        where : list of Term (or convertable) objects, optional
+        where : list of Term (or convertible) objects, optional
         start : integer (defaults to None), row number to start selection
         stop  : integer (defaults to None), row number to stop selection
         """
@@ -815,7 +812,7 @@ class HDFStore(StringMixin):
                     "all tables must have exactly the same nrows!")
 
         # axis is the concentation axes
-        axis = list(set([t.non_index_axes[0][0] for t in tbls]))[0]
+        axis = list({t.non_index_axes[0][0] for t in tbls})[0]
 
         def func(_start, _stop, _where):
 
@@ -873,7 +870,7 @@ class HDFStore(StringMixin):
         ----------
         key : string
             Node to remove or delete rows from
-        where : list of Term (or convertable) objects, optional
+        where : list of Term (or convertible) objects, optional
         start : integer (defaults to None), row number to start selection
         stop  : integer (defaults to None), row number to stop selection
 
@@ -924,7 +921,7 @@ class HDFStore(StringMixin):
         Parameters
         ----------
         key : object
-        value : {Series, DataFrame, Panel, Panel4D}
+        value : {Series, DataFrame, Panel}
         format: 'table' is the default
             table(t) : table format
                        Write as a PyTables Table structure which may perform
@@ -1250,7 +1247,7 @@ class HDFStore(StringMixin):
         # existing node (and must be a table)
         if tt is None:
 
-            # if we are a writer, determin the tt
+            # if we are a writer, determine the tt
             if value is not None:
 
                 if pt == u('series_table'):
@@ -1370,7 +1367,7 @@ class TableIterator(object):
         ----------
 
         store : the reference store
-        s     : the refered storer
+        s     : the referred storer
         func  : the function to execute the query
         where : the where of the query
         nrows : the rows to iterate on
@@ -1539,8 +1536,8 @@ class IndexCol(StringMixin):
 
     def __eq__(self, other):
         """ compare 2 col items """
-        return all([getattr(self, a, None) == getattr(other, a, None)
-                    for a in ['name', 'cname', 'axis', 'pos']])
+        return all(getattr(self, a, None) == getattr(other, a, None)
+                   for a in ['name', 'cname', 'axis', 'pos'])
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -1792,7 +1789,7 @@ class DataCol(IndexCol):
         # name values_0
         try:
             if version[0] == 0 and version[1] <= 10 and version[2] == 0:
-                m = re.search("values_block_(\d+)", name)
+                m = re.search(r"values_block_(\d+)", name)
                 if m:
                     name = "values_%s" % m.groups()[0]
         except:
@@ -1824,8 +1821,8 @@ class DataCol(IndexCol):
 
     def __eq__(self, other):
         """ compare 2 col items """
-        return all([getattr(self, a, None) == getattr(other, a, None)
-                    for a in ['name', 'cname', 'dtype', 'pos']])
+        return all(getattr(self, a, None) == getattr(other, a, None)
+                   for a in ['name', 'cname', 'dtype', 'pos'])
 
     def set_data(self, data, dtype=None):
         self.data = data
@@ -2137,10 +2134,17 @@ class DataCol(IndexCol):
                 # if we have stored a NaN in the categories
                 # then strip it; in theory we could have BOTH
                 # -1s in the codes and nulls :<
-                mask = isna(categories)
-                if mask.any():
-                    categories = categories[~mask]
-                    codes[codes != -1] -= mask.astype(int).cumsum().values
+                if categories is None:
+                    # Handle case of NaN-only categorical columns in which case
+                    # the categories are an empty array; when this is stored,
+                    # pytables cannot write a zero-len array, so on readback
+                    # the categories would be None and `read_hdf()` would fail.
+                    categories = Index([], dtype=np.float64)
+                else:
+                    mask = isna(categories)
+                    if mask.any():
+                        categories = categories[~mask]
+                        codes[codes != -1] -= mask.astype(int).cumsum().values
 
                 self.data = Categorical.from_codes(codes,
                                                    categories=categories,
@@ -2238,7 +2242,7 @@ class Fixed(StringMixin):
         version = _ensure_decoded(
             getattr(self.group._v_attrs, 'pandas_version', None))
         try:
-            self.version = tuple([int(x) for x in version.split('.')])
+            self.version = tuple(int(x) for x in version.split('.'))
             if len(self.version) == 2:
                 self.version = self.version + (0,)
         except:
@@ -2259,7 +2263,7 @@ class Fixed(StringMixin):
         s = self.shape
         if s is not None:
             if isinstance(s, (list, tuple)):
-                s = "[%s]" % ','.join([pprint_thing(x) for x in s])
+                s = "[%s]" % ','.join(pprint_thing(x) for x in s)
             return "%-12.12s (shape->%s)" % (self.pandas_type, s)
         return self.pandas_type
 
@@ -2374,8 +2378,7 @@ class GenericFixed(Fixed):
 
     """ a generified fixed version """
     _index_type_map = {DatetimeIndex: 'datetime', PeriodIndex: 'period'}
-    _reverse_index_map = dict([(v, k)
-                               for k, v in compat.iteritems(_index_type_map)])
+    _reverse_index_map = {v: k for k, v in compat.iteritems(_index_type_map)}
     attributes = []
 
     # indexer helpders
@@ -2997,11 +3000,11 @@ class Table(Fixed):
 
         ver = ''
         if self.is_old_version:
-            ver = "[%s]" % '.'.join([str(x) for x in self.version])
+            ver = "[%s]" % '.'.join(str(x) for x in self.version)
 
         return "%-12.12s%s (typ->%s,nrows->%s,ncols->%s,indexers->[%s]%s)" % (
             self.pandas_type, ver, self.table_type_short, self.nrows,
-            self.ncols, ','.join([a.name for a in self.index_axes]), dc
+            self.ncols, ','.join(a.name for a in self.index_axes), dc
         )
 
     def __getitem__(self, c):
@@ -3094,7 +3097,7 @@ class Table(Fixed):
     @property
     def ncols(self):
         """ the number of total columns in the values axes """
-        return sum([len(a.values) for a in self.values_axes])
+        return sum(len(a.values) for a in self.values_axes)
 
     @property
     def is_transposed(self):
@@ -3510,8 +3513,8 @@ class Table(Fixed):
 
         # reorder the blocks in the same order as the existing_table if we can
         if existing_table is not None:
-            by_items = dict([(tuple(b_items.tolist()), (b, b_items))
-                             for b, b_items in zip(blocks, blk_items)])
+            by_items = {tuple(b_items.tolist()): (b, b_items)
+                        for b, b_items in zip(blocks, blk_items)}
             new_blocks = []
             new_blk_items = []
             for ea in existing_table.values_axes:
@@ -3659,7 +3662,7 @@ class Table(Fixed):
         d = dict(name='table', expectedrows=expectedrows)
 
         # description from the axes & values
-        d['description'] = dict([(a.cname, a.typ) for a in self.axes])
+        d['description'] = {a.cname: a.typ for a in self.axes}
 
         if complib:
             if complevel is None:
@@ -4291,7 +4294,7 @@ class AppendableMultiFrameTable(AppendableFrameTable):
     table_type = u('appendable_multiframe')
     obj_type = DataFrame
     ndim = 2
-    _re_levels = re.compile("^level_\d+$")
+    _re_levels = re.compile(r"^level_\d+$")
 
     @property
     def table_type_short(self):
@@ -4338,14 +4341,6 @@ class AppendablePanelTable(AppendableTable):
     @property
     def is_transposed(self):
         return self.data_orientation != tuple(range(self.ndim))
-
-
-class AppendableNDimTable(AppendablePanelTable):
-
-    """ suppor the new appendable table formats """
-    table_type = u('appendable_ndim')
-    ndim = 4
-    obj_type = Panel4D
 
 
 def _reindex_axis(obj, axis, labels, other=None):
@@ -4647,7 +4642,7 @@ class Selection(object):
     Parameters
     ----------
     table : a Table object
-    where : list of Terms (or convertable to)
+    where : list of Terms (or convertible to)
     start, stop: indicies to start and/or stop selection
 
     """
@@ -4712,7 +4707,7 @@ class Selection(object):
             raise ValueError(
                 "The passed where expression: {0}\n"
                 "            contains an invalid variable reference\n"
-                "            all of the variable refrences must be a "
+                "            all of the variable references must be a "
                 "reference to\n"
                 "            an axis (e.g. 'index' or 'columns'), or a "
                 "data_column\n"

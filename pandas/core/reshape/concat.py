@@ -276,7 +276,7 @@ class _Concatenator(object):
             ndims.add(obj.ndim)
 
         # get the sample
-        # want the higest ndim that we have, and must be non-empty
+        # want the highest ndim that we have, and must be non-empty
         # unless all objs are empty
         sample = None
         if len(ndims) > 1:
@@ -568,7 +568,7 @@ def _make_concat_multiindex(indexes, keys, levels=None, names=None):
             names = list(names)
         else:
             # make sure that all of the passed indices have the same nlevels
-            if not len(set([idx.nlevels for idx in indexes])) == 1:
+            if not len({idx.nlevels for idx in indexes}) == 1:
                 raise AssertionError("Cannot concat indices that do"
                                      " not have the same number of levels")
 

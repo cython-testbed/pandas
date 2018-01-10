@@ -133,6 +133,30 @@ class TestDataFrameReshape(TestData):
         assert_frame_equal(unstacked_cols.T, df)
         assert_frame_equal(unstacked_cols_df['bar'].T, df)
 
+    def test_stack_mixed_level(self):
+        # GH 18310
+        levels = [range(3), [3, 'a', 'b'], [1, 2]]
+
+        # flat columns:
+        df = DataFrame(1, index=levels[0], columns=levels[1])
+        result = df.stack()
+        expected = Series(1, index=MultiIndex.from_product(levels[:2]))
+        assert_series_equal(result, expected)
+
+        # MultiIndex columns:
+        df = DataFrame(1, index=levels[0],
+                       columns=MultiIndex.from_product(levels[1:]))
+        result = df.stack(1)
+        expected = DataFrame(1, index=MultiIndex.from_product([levels[0],
+                                                               levels[2]]),
+                             columns=levels[1])
+        assert_frame_equal(result, expected)
+
+        # as above, but used labels in level are actually of homogeneous type
+        result = df[['a', 'b']].stack(1)
+        expected = expected[['a', 'b']]
+        assert_frame_equal(result, expected)
+
     def test_unstack_fill(self):
 
         # GH #9746: fill_value keyword argument for Series
@@ -536,16 +560,6 @@ class TestDataFrameReshape(TestData):
             assert left.shape == (3, 2)
             tm.assert_frame_equal(left, right)
 
-    def test_unstack_non_unique_index_names(self):
-        idx = MultiIndex.from_tuples([('a', 'b'), ('c', 'd')],
-                                     names=['c1', 'c1'])
-        df = DataFrame([1, 2], index=idx)
-        with pytest.raises(ValueError):
-            df.unstack('c1')
-
-        with pytest.raises(ValueError):
-            df.T.stack('c1')
-
     def test_unstack_nan_index(self):  # GH7466
         cast = lambda val: '{0:1}'.format('' if val != val else val)
         nan = np.nan
@@ -783,3 +797,26 @@ class TestDataFrameReshape(TestData):
                 expected = Series([10, 11, 12], index=midx)
 
                 tm.assert_series_equal(result, expected)
+
+
+def test_unstack_fill_frame_object():
+    # GH12815 Test unstacking with object.
+    data = pd.Series(['a', 'b', 'c', 'a'], dtype='object')
+    data.index = pd.MultiIndex.from_tuples(
+        [('x', 'a'), ('x', 'b'), ('y', 'b'), ('z', 'a')])
+
+    # By default missing values will be NaN
+    result = data.unstack()
+    expected = pd.DataFrame(
+        {'a': ['a', np.nan, 'a'], 'b': ['b', 'c', np.nan]},
+        index=list('xyz')
+    )
+    assert_frame_equal(result, expected)
+
+    # Fill with any value replaces missing values as expected
+    result = data.unstack(fill_value='d')
+    expected = pd.DataFrame(
+        {'a': ['a', 'd', 'a'], 'b': ['b', 'c', 'd']},
+        index=list('xyz')
+    )
+    assert_frame_equal(result, expected)

@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 # cython: profile=False
-# cython: linetrace=False
-# distutils: define_macros=CYTHON_TRACE=0
-# distutils: define_macros=CYTHON_TRACE_NOGIL=0
 
 cimport cython
 from cython cimport Py_ssize_t
@@ -13,13 +10,7 @@ from dateutil.tz import (
     tzlocal as _dateutil_tzlocal,
     tzfile as _dateutil_tzfile)
 
-import sys
-if sys.platform == 'win32' or sys.platform == 'cygwin':
-    # equiv pd.compat.is_platform_windows()
-    from dateutil.zoneinfo import gettz as dateutil_gettz
-else:
-    from dateutil.tz import gettz as dateutil_gettz
-
+from dateutil.tz import gettz as dateutil_gettz
 
 from pytz.tzinfo import BaseTzInfo as _pytz_BaseTzInfo
 import pytz
@@ -284,10 +275,9 @@ cdef object get_dst_info(object tz):
 def infer_tzinfo(start, end):
     if start is not None and end is not None:
         tz = start.tzinfo
-        if end.tzinfo:
-            if not (get_timezone(tz) == get_timezone(end.tzinfo)):
-                msg = 'Inputs must both have the same timezone, {tz1} != {tz2}'
-                raise AssertionError(msg.format(tz1=tz, tz2=end.tzinfo))
+        if not (get_timezone(tz) == get_timezone(end.tzinfo)):
+            msg = 'Inputs must both have the same timezone, {tz1} != {tz2}'
+            raise AssertionError(msg.format(tz1=tz, tz2=end.tzinfo))
     elif start is not None:
         tz = start.tzinfo
     elif end is not None:

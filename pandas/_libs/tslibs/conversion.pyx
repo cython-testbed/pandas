@@ -20,31 +20,29 @@ PyDateTime_IMPORT
 
 from np_datetime cimport (check_dts_bounds,
                           pandas_datetimestruct,
+                          pandas_datetime_to_datetimestruct, _string_to_dts,
+                          PANDAS_DATETIMEUNIT, PANDAS_FR_ns,
+                          npy_datetime,
                           dt64_to_dtstruct, dtstruct_to_dt64,
+                          get_datetime64_unit, get_datetime64_value,
                           pydatetime_to_dt64)
 
-from datetime cimport (pandas_datetime_to_datetimestruct,
-                       PANDAS_DATETIMEUNIT, PANDAS_FR_ns, npy_datetime,
-                       _string_to_dts,
-                       get_datetime64_unit, get_datetime64_value)
-
-cimport util
 from util cimport (is_string_object,
                    is_datetime64_object,
                    is_integer_object, is_float_object)
 
 from timedeltas cimport cast_from_unit
-from timezones cimport (
-    is_utc, is_tzlocal, is_fixed_offset,
-    treat_tz_as_dateutil, treat_tz_as_pytz,
-    get_utcoffset, get_dst_info, get_timezone, maybe_get_tz)
+from timezones cimport (is_utc, is_tzlocal, is_fixed_offset,
+                        treat_tz_as_dateutil, treat_tz_as_pytz,
+                        get_utcoffset, get_dst_info,
+                        get_timezone, maybe_get_tz)
 from parsing import parse_datetime_string
 
 from nattype import nat_strings, NaT
+from nattype cimport NPY_NAT, checknull_with_nat
 
 # ----------------------------------------------------------------------
 # Constants
-cdef int64_t NPY_NAT = util.get_nat()
 
 cdef int64_t DAY_NS = 86400000000000LL
 
@@ -74,6 +72,126 @@ cdef inline int64_t get_datetime64_nanos(object val) except? -1:
 
     return ival
 
+
+def ensure_datetime64ns(ndarray arr):
+    """
+    Ensure a np.datetime64 array has dtype specifically 'datetime64[ns]'
+
+    Parameters
+    ----------
+    arr : ndarray
+
+    Returns
+    -------
+    result : ndarray with dtype datetime64[ns]
+
+    """
+    cdef:
+        Py_ssize_t i, n = arr.size
+        ndarray[int64_t] ivalues, iresult
+        PANDAS_DATETIMEUNIT unit
+        pandas_datetimestruct dts
+
+    shape = (<object> arr).shape
+
+    ivalues = arr.view(np.int64).ravel()
+
+    result = np.empty(shape, dtype='M8[ns]')
+    iresult = result.ravel().view(np.int64)
+
+    if len(iresult) == 0:
+        return result
+
+    unit = get_datetime64_unit(arr.flat[0])
+    if unit == PANDAS_FR_ns:
+        result = arr
+    else:
+        for i in range(n):
+            if ivalues[i] != NPY_NAT:
+                pandas_datetime_to_datetimestruct(ivalues[i], unit, &dts)
+                iresult[i] = dtstruct_to_dt64(&dts)
+                check_dts_bounds(&dts)
+            else:
+                iresult[i] = NPY_NAT
+
+    return result
+
+
+def datetime_to_datetime64(ndarray[object] values):
+    """
+    Convert ndarray of datetime-like objects to int64 array representing
+    nanosecond timestamps.
+
+    Parameters
+    ----------
+    values : ndarray
+
+    Returns
+    -------
+    result : ndarray with dtype int64
+    inferred_tz : tzinfo or None
+    """
+    cdef:
+        Py_ssize_t i, n = len(values)
+        object val, inferred_tz = None
+        ndarray[int64_t] iresult
+        pandas_datetimestruct dts
+        _TSObject _ts
+
+    result = np.empty(n, dtype='M8[ns]')
+    iresult = result.view('i8')
+    for i in range(n):
+        val = values[i]
+        if checknull_with_nat(val):
+            iresult[i] = NPY_NAT
+        elif PyDateTime_Check(val):
+            if val.tzinfo is not None:
+                if inferred_tz is not None:
+                    if get_timezone(val.tzinfo) != inferred_tz:
+                        raise ValueError('Array must be all same time zone')
+                else:
+                    inferred_tz = get_timezone(val.tzinfo)
+
+                _ts = convert_datetime_to_tsobject(val, None)
+                iresult[i] = _ts.value
+                check_dts_bounds(&_ts.dts)
+            else:
+                if inferred_tz is not None:
+                    raise ValueError('Cannot mix tz-aware with '
+                                     'tz-naive values')
+                iresult[i] = pydatetime_to_dt64(val, &dts)
+                check_dts_bounds(&dts)
+        else:
+            raise TypeError('Unrecognized value type: %s' % type(val))
+
+    return result, inferred_tz
+
+
+cdef inline maybe_datetimelike_to_i8(object val):
+    """
+    Try to convert to a nanosecond timestamp.  Fall back to returning the
+    input value.
+
+    Parameters
+    ----------
+    val : object
+
+    Returns
+    -------
+    val : int64 timestamp or original input
+    """
+    cdef:
+        pandas_datetimestruct dts
+    try:
+        return val.value
+    except AttributeError:
+        if is_datetime64_object(val):
+            return get_datetime64_value(val)
+        elif PyDateTime_Check(val):
+            return convert_datetime_to_tsobject(val, None).value
+        return val
+
+
 # ----------------------------------------------------------------------
 # _TSObject Conversion
 
@@ -84,9 +202,9 @@ cdef class _TSObject:
     #    int64_t value               # numpy dt64
     #    object tzinfo
 
-    property value:
-        def __get__(self):
-            return self.value
+    @property
+    def value(self):
+        return self.value
 
 
 cpdef int64_t pydt_to_i8(object pydt) except? -1:
@@ -351,7 +469,8 @@ cdef inline void _localize_tso(_TSObject obj, object tz):
     """
     cdef:
         ndarray[int64_t] trans, deltas
-        Py_ssize_t delta, posn
+        int64_t delta
+        Py_ssize_t posn
         datetime dt
 
     assert obj.tzinfo is None

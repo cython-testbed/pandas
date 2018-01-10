@@ -118,22 +118,22 @@ Creating a development environment
 ----------------------------------
 
 To test out code changes, you'll need to build pandas from source, which
-requires a C compiler and python environment. If you're making documentation
+requires a C compiler and Python environment. If you're making documentation
 changes, you can skip to :ref:`contributing.documentation` but you won't be able
 to build the documentation locally before pushing your changes.
 
 .. _contributiong.dev_c:
 
-Installing a C Complier
+Installing a C Compiler
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 Pandas uses C extensions (mostly written using Cython) to speed up certain
 operations. To install pandas from source, you need to compile these C
-extensions, which means you need a C complier. This process depends on which
+extensions, which means you need a C compiler. This process depends on which
 platform you're using. Follow the `CPython contributing guidelines
 <https://docs.python.org/devguide/setup.html#build-dependencies>`_ for getting a
-complier installed. You don't need to do any of the ``./configure`` or ``make``
-steps; you only need to install the complier.
+compiler installed. You don't need to do any of the ``./configure`` or ``make``
+steps; you only need to install the compiler.
 
 For Windows developers, the following links may be helpful.
 
@@ -151,7 +151,7 @@ Let us know if you have any difficulties by opening an issue or reaching out on
 Creating a Python Environment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Now that you have a C complier, create an isolated pandas development
+Now that you have a C compiler, create an isolated pandas development
 environment:
 
 - Install either `Anaconda <https://www.anaconda.com/download/>`_ or `miniconda
@@ -187,7 +187,7 @@ At this point you should be able to import pandas from your locally built versio
    0.22.0.dev0+29.g4ad6d4d74
 
 This will create the new environment, and not touch any of your existing environments,
-nor any existing python installation.
+nor any existing Python installation.
 
 To view your environments::
 
@@ -316,6 +316,27 @@ Some other important things to know about the docs:
   Almost all code examples in the docs are run (and the output saved) during the
   doc build. This approach means that code examples will always be up to date,
   but it does make the doc building a bit more complex.
+
+- Our API documentation in ``doc/source/api.rst`` houses the auto-generated
+  documentation from the docstrings. For classes, there are a few subtleties
+  around controlling which methods and attributes have pages auto-generated.
+
+  We have two autosummary templates for classes.
+
+  1. ``_templates/autosummary/class.rst``. Use this when you want to
+     automatically generate a page for every public method and attribute on the
+     class. The ``Attributes`` and ``Methods`` sections will be automatically
+     added to the class' rendered documentation by numpydoc. See ``DataFrame``
+     for an example.
+
+  2. ``_templates/autosummary/class_without_autosummary``. Use this when you
+     want to pick a subset of methods / attributes to auto-generate pages for.
+     When using this template, you should include an ``Attributes`` and
+     ``Methods`` section in the class docstring. See ``CategoricalIndex`` for an
+     example.
+
+  Every method should be included in a ``toctree`` in ``api.rst``, else Sphinx
+  will emit a warning.
 
 .. note::
 
@@ -526,7 +547,30 @@ Backwards Compatibility
 Please try to maintain backward compatibility. *pandas* has lots of users with lots of
 existing code, so don't break it if at all possible.  If you think breakage is required,
 clearly state why as part of the pull request.  Also, be careful when changing method
-signatures and add deprecation warnings where needed.
+signatures and add deprecation warnings where needed. Also, add the deprecated sphinx
+directive to the deprecated functions or methods.
+
+If a function with the same arguments as the one being deprecated exist, you can use
+the ``pandas.util._decorators.deprecate``:
+
+.. code-block:: python
+
+    from pandas.util._decorators import deprecate
+
+    deprecate('old_func', 'new_func', '0.21.0')
+
+Otherwise, you need to do it manually:
+
+.. code-block:: python
+
+    def old_func():
+        """Summary of the function.
+
+        .. deprecated:: 0.21.0
+           Use new_func instead.
+        """
+        warnings.warn('Use new_func instead.', FutureWarning, stacklevel=2)
+        new_func()
 
 .. _contributing.ci:
 

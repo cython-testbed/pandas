@@ -20,6 +20,7 @@ from pandas.core.dtypes.common import (
     is_datetimetz,
     is_integer,
     is_float,
+    is_scalar,
     is_numeric_dtype,
     is_datetime64_dtype,
     is_timedelta64_dtype,
@@ -37,7 +38,7 @@ from pandas.io.common import (_get_handle, UnicodeWriter, _expand_user,
                               _stringify_path)
 from pandas.io.formats.printing import adjoin, justify, pprint_thing
 from pandas.io.formats.common import get_level_lengths
-import pandas._libs.lib as lib
+from pandas._libs import lib
 from pandas._libs.tslib import (iNaT, Timestamp, Timedelta,
                                 format_array_from_datetime)
 from pandas.core.indexes.datetimes import DatetimeIndex
@@ -45,7 +46,6 @@ from pandas.core.indexes.period import PeriodIndex
 import pandas as pd
 import numpy as np
 
-import itertools
 import csv
 from functools import partial
 
@@ -546,7 +546,7 @@ class DataFrameFormatter(TableFormatter):
                                                minimum=header_colwidth,
                                                adj=self.adj)
 
-                max_len = max(np.max([self.adj.len(x) for x in fmt_values]),
+                max_len = max(max(self.adj.len(x) for x in fmt_values),
                               header_colwidth)
                 cheader = self.adj.justify(cheader, max_len, mode=self.justify)
                 stringified.append(cheader + fmt_values)
@@ -761,7 +761,7 @@ class DataFrameFormatter(TableFormatter):
             dtypes = self.frame.dtypes._values
 
             # if we have a Float level, they don't use leading space at all
-            restrict_formatting = any([l.is_floating for l in columns.levels])
+            restrict_formatting = any(l.is_floating for l in columns.levels)
             need_leadsp = dict(zip(fmt_columns, map(is_numeric_dtype, dtypes)))
 
             def space_format(x, y):
@@ -902,6 +902,7 @@ class LatexFormatter(TableFormatter):
             name = any(self.frame.index.names)
             cname = any(self.frame.columns.names)
             lastcol = self.frame.index.nlevels - 1
+            previous_lev3 = None
             for i, lev in enumerate(self.frame.index.levels):
                 lev2 = lev.format()
                 blank = ' ' * len(lev2[0])
@@ -912,11 +913,19 @@ class LatexFormatter(TableFormatter):
                     lev3 = [blank] * clevels
                 if name:
                     lev3.append(lev.name)
-                for level_idx, group in itertools.groupby(
-                        self.frame.index.labels[i]):
-                    count = len(list(group))
-                    lev3.extend([lev2[level_idx]] + [blank] * (count - 1))
+                current_idx_val = None
+                for level_idx in self.frame.index.labels[i]:
+                    if ((previous_lev3 is None or
+                        previous_lev3[len(lev3)].isspace()) and
+                            lev2[level_idx] == current_idx_val):
+                        # same index as above row and left index was the same
+                        lev3.append(blank)
+                    else:
+                        # different value than above or left index different
+                        lev3.append(lev2[level_idx])
+                        current_idx_val = lev2[level_idx]
                 strcols.insert(i, lev3)
+                previous_lev3 = lev3
 
         column_format = self.column_format
         if column_format is None:
@@ -953,8 +962,8 @@ class LatexFormatter(TableFormatter):
                 if self.longtable:
                     buf.write('\\endhead\n')
                     buf.write('\\midrule\n')
-                    buf.write('\\multicolumn{3}{r}{{Continued on next '
-                              'page}} \\\\\n')
+                    buf.write('\\multicolumn{{{n}}}{{r}}{{{{Continued on next '
+                              'page}}}} \\\\\n'.format(n=len(row)))
                     buf.write('\\midrule\n')
                     buf.write('\\endfoot\n\n')
                     buf.write('\\bottomrule\n')
@@ -966,7 +975,7 @@ class LatexFormatter(TableFormatter):
                          .replace('#', '\\#').replace('{', '\\{')
                          .replace('}', '\\}').replace('~', '\\textasciitilde')
                          .replace('^', '\\textasciicircum').replace('&', '\\&')
-                         if x else '{}') for x in row]
+                         if (x and x != '{}') else '{}') for x in row]
             else:
                 crow = [x if x else '{}' for x in row]
             if self.bold_rows and self.fmt.index:
@@ -993,7 +1002,7 @@ class LatexFormatter(TableFormatter):
             buf.write('\\end{longtable}\n')
 
     def _format_multicolumn(self, row, ilevels):
-        """
+        r"""
         Combine columns belonging to a group to a single multicolumn entry
         according to self.multicolumn_format
 
@@ -1031,7 +1040,7 @@ class LatexFormatter(TableFormatter):
         return row2
 
     def _format_multirow(self, row, ilevels, i, rows):
-        """
+        r"""
         Check following rows, whether row should be a multirow
 
         e.g.:     becomes:
@@ -1062,7 +1071,7 @@ class LatexFormatter(TableFormatter):
         """
         for cl in self.clinebuf:
             if cl[0] == i:
-                buf.write('\cline{{{cl:d}-{icol:d}}}\n'
+                buf.write('\\cline{{{cl:d}-{icol:d}}}\n'
                           .format(cl=cl[1], icol=icol))
         # remove entries that have been written to buffer
         self.clinebuf = [x for x in self.clinebuf if x[0] != i]
@@ -1860,7 +1869,7 @@ class GenericArrayFormatter(object):
             (lambda x: pprint_thing(x, escape_chars=('\t', '\r', '\n'))))
 
         def _format(x):
-            if self.na_rep is not None and lib.checknull(x):
+            if self.na_rep is not None and is_scalar(x) and isna(x):
                 if x is None:
                     return 'None'
                 elif x is pd.NaT:
@@ -2179,14 +2188,14 @@ def _is_dates_only(values):
     consider_values = values_int != iNaT
     one_day_nanos = (86400 * 1e9)
     even_days = np.logical_and(consider_values,
-                               values_int % one_day_nanos != 0).sum() == 0
+                               values_int % int(one_day_nanos) != 0).sum() == 0
     if even_days:
         return True
     return False
 
 
 def _format_datetime64(x, tz=None, nat_rep='NaT'):
-    if x is None or lib.checknull(x):
+    if x is None or (is_scalar(x) and isna(x)):
         return nat_rep
 
     if tz is not None or not isinstance(x, Timestamp):
@@ -2196,7 +2205,7 @@ def _format_datetime64(x, tz=None, nat_rep='NaT'):
 
 
 def _format_datetime64_dateonly(x, nat_rep='NaT', date_format=None):
-    if x is None or lib.checknull(x):
+    if x is None or (is_scalar(x) and isna(x)):
         return nat_rep
 
     if not isinstance(x, Timestamp):
@@ -2230,7 +2239,7 @@ class Datetime64TZFormatter(Datetime64Formatter):
     def _format_strings(self):
         """ we by definition have a TZ """
 
-        values = self.values.asobject
+        values = self.values.astype(object)
         is_dates_only = _is_dates_only(values)
         formatter = (self.formatter or
                      _get_format_datetime64(is_dates_only,
@@ -2274,14 +2283,14 @@ def _get_format_timedelta64(values, nat_rep='NaT', box=False):
         consider_values, np.abs(values_int) >= one_day_nanos).sum() == 0
 
     if even_days:
-        format = 'even_day'
+        format = None
     elif all_sub_day:
         format = 'sub_day'
     else:
         format = 'long'
 
     def _formatter(x):
-        if x is None or lib.checknull(x):
+        if x is None or (is_scalar(x) and isna(x)):
             return nat_rep
 
         if not isinstance(x, Timedelta):
@@ -2302,7 +2311,7 @@ def _make_fixed_width(strings, justify='right', minimum=None, adj=None):
     if adj is None:
         adj = _get_adjustment()
 
-    max_len = np.max([adj.len(x) for x in strings])
+    max_len = max(adj.len(x) for x in strings)
 
     if minimum is not None:
         max_len = max(minimum, max_len)
@@ -2330,8 +2339,8 @@ def _trim_zeros(str_floats, na_rep='NaN'):
 
     def _cond(values):
         non_na = [x for x in values if x != na_rep]
-        return (len(non_na) > 0 and all([x.endswith('0') for x in non_na]) and
-                not (any([('e' in x) or ('E' in x) for x in non_na])))
+        return (len(non_na) > 0 and all(x.endswith('0') for x in non_na) and
+                not (any(('e' in x) or ('E' in x) for x in non_na)))
 
     while _cond(trimmed):
         trimmed = [x[:-1] if x != na_rep else x for x in trimmed]

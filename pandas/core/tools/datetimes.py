@@ -4,7 +4,7 @@ from collections import MutableMapping
 
 from pandas._libs import tslib
 from pandas._libs.tslibs.strptime import array_strptime
-from pandas._libs.tslibs import parsing
+from pandas._libs.tslibs import parsing, conversion
 from pandas._libs.tslibs.parsing import (  # noqa
     parse_time_string,
     DateParseError,
@@ -114,7 +114,7 @@ def to_datetime(arg, errors='raise', dayfirst=False, yearfirst=False,
     ----------
     arg : integer, float, string, datetime, list, tuple, 1-d array, Series
 
-        .. versionadded: 0.18.1
+        .. versionadded:: 0.18.1
 
            or DataFrame/dict-like
 
@@ -140,7 +140,7 @@ def to_datetime(arg, errors='raise', dayfirst=False, yearfirst=False,
         Warning: yearfirst=True is not strict, but will prefer to parse
         with year first (this is a known bug, based on dateutil beahavior).
 
-        .. versionadded: 0.16.1
+        .. versionadded:: 0.16.1
 
     utc : boolean, default None
         Return UTC DatetimeIndex if True (converting any tz-aware
@@ -178,13 +178,14 @@ def to_datetime(arg, errors='raise', dayfirst=False, yearfirst=False,
         - If Timestamp convertible, origin is set to Timestamp identified by
           origin.
 
-        .. versionadded: 0.20.0
+        .. versionadded:: 0.20.0
     cache : boolean, default False
         If True, use a cache of unique, converted dates to apply the datetime
         conversion. May produce sigificant speed-up when parsing duplicate date
         strings, especially ones with timezone offsets.
 
-        .. versionadded: 0.22.0
+        .. versionadded:: 0.23.0
+
     Returns
     -------
     ret : datetime if parsing succeeded.
@@ -196,11 +197,11 @@ def to_datetime(arg, errors='raise', dayfirst=False, yearfirst=False,
 
         In case when it is not possible to return designated types (e.g. when
         any element of input is before Timestamp.min or after Timestamp.max)
-        return will have datetime.datetime type (or correspoding array/Series).
+        return will have datetime.datetime type (or corresponding
+        array/Series).
 
     Examples
     --------
-
     Assembling a datetime from multiple columns of a DataFrame. The keys can be
     common abbreviations like ['year', 'month', 'day', 'minute', 'second',
     'ms', 'us', 'ns']) or plurals of the same
@@ -373,7 +374,7 @@ def to_datetime(arg, errors='raise', dayfirst=False, yearfirst=False,
 
         except ValueError as e:
             try:
-                values, tz = tslib.datetime_to_datetime64(arg)
+                values, tz = conversion.datetime_to_datetime64(arg)
                 return DatetimeIndex._simple_new(values, name=name, tz=tz)
             except (ValueError, TypeError):
                 raise e
@@ -497,7 +498,7 @@ _unit_map = {'year': 'year',
 
 def _assemble_from_unit_mappings(arg, errors):
     """
-    assemble the unit specifed fields from the arg (DataFrame)
+    assemble the unit specified fields from the arg (DataFrame)
     Return a Series for actual parsing
 
     Parameters
@@ -628,8 +629,6 @@ def _attempt_YYYYMMDD(arg, errors):
 
     return None
 
-
-normalize_date = tslib.normalize_date
 
 # Fixed time formats for time parsing
 _time_formats = ["%H:%M", "%H%M", "%I:%M%p", "%I%M%p",

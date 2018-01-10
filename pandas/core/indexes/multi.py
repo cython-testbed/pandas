@@ -14,9 +14,11 @@ from pandas import compat
 from pandas.core.dtypes.common import (
     _ensure_int64,
     _ensure_platform_int,
+    is_categorical_dtype,
     is_object_dtype,
     is_iterator,
     is_list_like,
+    pandas_dtype,
     is_scalar)
 from pandas.core.dtypes.missing import isna, array_equivalent
 from pandas.errors import PerformanceWarning, UnsortedIndexError
@@ -95,6 +97,30 @@ class MultiIndex(Index):
                               of iterables
     MultiIndex.from_tuples  : Convert list of tuples to a MultiIndex
     Index : The base pandas Index type
+
+    Attributes
+    ----------
+    names
+    levels
+    labels
+    nlevels
+    levshape
+
+    Methods
+    -------
+    from_arrays
+    from_tuples
+    from_product
+    set_levels
+    set_labels
+    to_hierarchical
+    to_frame
+    is_lexsorted
+    sortlevel
+    droplevel
+    swaplevel
+    reorder_levels
+    remove_unused_levels
     """
 
     # initialize to zero-length tuples to make everything work
@@ -153,8 +179,8 @@ class MultiIndex(Index):
         Raises
         ------
         ValueError
-            * if length of levels and labels don't match or any label would
-            exceed level bounds
+            If length of levels and labels don't match, if any label would
+            exceed level bounds, or there are any duplicate levels.
         """
         # NOTE: Currently does not check, among other things, that cached
         # nlevels matches nor that sortorder matches actually sortorder.
@@ -174,6 +200,11 @@ class MultiIndex(Index):
                                  " level  (%d). NOTE: this index is in an"
                                  " inconsistent state" % (i, label.max(),
                                                           len(level)))
+            if not level.is_unique:
+                raise ValueError("Level values must be unique: {values} on "
+                                 "level {level}".format(
+                                     values=[value for value in level],
+                                     level=i))
 
     @property
     def levels(self):
@@ -297,8 +328,9 @@ class MultiIndex(Index):
         else:
             level = [self._get_level_number(l) for l in level]
             new_labels = list(self._labels)
-            for l, lev, lab in zip(level, self.levels, labels):
-                new_labels[l] = _ensure_frozen(
+            for lev_idx, lab in zip(level, labels):
+                lev = self.levels[lev_idx]
+                new_labels[lev_idx] = _ensure_frozen(
                     lab, lev, copy=copy)._shallow_copy()
             new_labels = FrozenList(new_labels)
 
@@ -461,7 +493,7 @@ class MultiIndex(Index):
         """ return a boolean if we need a qualified .info display """
         def f(l):
             return 'mixed' in l or 'string' in l or 'unicode' in l
-        return any([f(l) for l in self._inferred_type_levels])
+        return any(f(l) for l in self._inferred_type_levels)
 
     @Appender(Index.memory_usage.__doc__)
     def memory_usage(self, deep=False):
@@ -489,9 +521,9 @@ class MultiIndex(Index):
         # for implementations with no useful getsizeof (PyPy)
         objsize = 24
 
-        level_nbytes = sum((i.memory_usage(deep=deep) for i in self.levels))
-        label_nbytes = sum((i.nbytes for i in self.labels))
-        names_nbytes = sum((getsizeof(i, objsize) for i in self.names))
+        level_nbytes = sum(i.memory_usage(deep=deep) for i in self.levels)
+        label_nbytes = sum(i.nbytes for i in self.labels)
+        names_nbytes = sum(getsizeof(i, objsize) for i in self.names)
         result = level_nbytes + label_nbytes + names_nbytes
 
         # include our engine hashtable
@@ -548,22 +580,23 @@ class MultiIndex(Index):
 
         if level is None:
             level = range(self.nlevels)
+            used = {}
         else:
             level = [self._get_level_number(l) for l in level]
+            used = {self.levels[l].name: l
+                    for l in set(range(self.nlevels)) - set(level)}
 
         # set the name
         for l, name in zip(level, names):
+            if name is not None and name in used:
+                raise ValueError('Duplicated level name: "{}", assigned to '
+                                 'level {}, is already used for level '
+                                 '{}.'.format(name, l, used[name]))
             self.levels[l].rename(name, inplace=True)
+            used[name] = l
 
     names = property(fset=_set_names, fget=_get_names,
                      doc="Names of levels in MultiIndex")
-
-    def _reference_duplicate_name(self, name):
-        """
-        Returns True if the name refered to in self.names is duplicated.
-        """
-        # count the times name equals an element in self.names.
-        return sum(name == n for n in self.names) > 1
 
     def _format_native_types(self, na_rep='nan', **kwargs):
         new_levels = []
@@ -767,8 +800,8 @@ class MultiIndex(Index):
 
         *this is internal for use for the cython routines*
 
-        Paramters
-        ---------
+        Parameters
+        ----------
         key : string or tuple
 
         Returns
@@ -884,7 +917,7 @@ class MultiIndex(Index):
 
             raise InvalidIndexError(key)
 
-    def _get_level_values(self, level):
+    def _get_level_values(self, level, unique=False):
         """
         Return vector of label values for requested level,
         equal to the length of the index
@@ -894,17 +927,21 @@ class MultiIndex(Index):
         Parameters
         ----------
         level : int level
+        unique : bool, default False
+            if True, drop duplicated values
 
         Returns
         -------
         values : ndarray
         """
 
-        unique = self.levels[level]
+        values = self.levels[level]
         labels = self.labels[level]
-        filled = algos.take_1d(unique._values, labels,
-                               fill_value=unique._na_value)
-        values = unique._shallow_copy(filled)
+        if unique:
+            labels = algos.unique(labels)
+        filled = algos.take_1d(values._values, labels,
+                               fill_value=values._na_value)
+        values = values._shallow_copy(filled)
         return values
 
     def get_level_values(self, level):
@@ -942,6 +979,15 @@ class MultiIndex(Index):
         level = self._get_level_number(level)
         values = self._get_level_values(level)
         return values
+
+    @Appender(_index_shared_docs['index_unique'] % _index_doc_kwargs)
+    def unique(self, level=None):
+
+        if level is None:
+            return super(MultiIndex, self).unique()
+        else:
+            level = self._get_level_number(level)
+            return self._get_level_values(level=level, unique=True)
 
     def format(self, space=2, sparsify=None, adjoin=True, names=False,
                na_rep=None, formatter=None):
@@ -1125,6 +1171,11 @@ class MultiIndex(Index):
         MultiIndex.from_product : Make a MultiIndex from cartesian product
                                   of iterables
         """
+        if not is_list_like(arrays):
+            raise TypeError("Input must be a list / sequence of array-likes.")
+        elif is_iterator(arrays):
+            arrays = list(arrays)
+
         # Check if lengths of all arrays are equal or not,
         # raise ValueError, if not
         for i in range(1, len(arrays)):
@@ -1169,6 +1220,11 @@ class MultiIndex(Index):
         MultiIndex.from_product : Make a MultiIndex from cartesian product
                                   of iterables
         """
+        if not is_list_like(tuples):
+            raise TypeError('Input must be a list / sequence of tuple-likes.')
+        elif is_iterator(tuples):
+            tuples = list(tuples)
+
         if len(tuples) == 0:
             if names is None:
                 msg = 'Cannot infer number of levels from empty list'
@@ -1223,6 +1279,11 @@ class MultiIndex(Index):
         from pandas.core.categorical import _factorize_from_iterables
         from pandas.core.reshape.util import cartesian_product
 
+        if not is_list_like(iterables):
+            raise TypeError("Input must be a list / sequence of iterables.")
+        elif is_iterator(iterables):
+            iterables = list(iterables)
+
         labels, levels = _factorize_from_iterables(iterables)
         labels = cartesian_product(labels)
         return MultiIndex(levels, labels, sortorder=sortorder, names=names)
@@ -1268,19 +1329,19 @@ class MultiIndex(Index):
 
         for lev, lab in zip(self.levels, self.labels):
 
-            if lev.is_monotonic:
-                new_levels.append(lev)
-                new_labels.append(lab)
-                continue
+            if not lev.is_monotonic:
+                try:
+                    # indexer to reorder the levels
+                    indexer = lev.argsort()
+                except TypeError:
+                    pass
+                else:
+                    lev = lev.take(indexer)
 
-            # indexer to reorder the levels
-            indexer = lev.argsort()
-            lev = lev.take(indexer)
-
-            # indexer to reorder the labels
-            indexer = _ensure_int64(indexer)
-            ri = lib.get_reverse_indexer(indexer, len(indexer))
-            lab = algos.take_1d(ri, lab)
+                    # indexer to reorder the labels
+                    indexer = _ensure_int64(indexer)
+                    ri = lib.get_reverse_indexer(indexer, len(indexer))
+                    lab = algos.take_1d(ri, lab)
 
             new_levels.append(lev)
             new_labels.append(lab)
@@ -1331,22 +1392,26 @@ class MultiIndex(Index):
         for lev, lab in zip(self.levels, self.labels):
 
             uniques = algos.unique(lab)
+            na_idx = np.where(uniques == -1)[0]
 
             # nothing unused
-            if len(uniques) == len(lev):
-                new_levels.append(lev)
-                new_labels.append(lab)
-                continue
+            if len(uniques) != len(lev) + len(na_idx):
+                changed = True
 
-            changed = True
+                if len(na_idx):
+                    # Just ensure that -1 is in first position:
+                    uniques[[0, na_idx[0]]] = uniques[[na_idx[0], 0]]
 
-            # labels get mapped from uniques to 0:len(uniques)
-            label_mapping = np.zeros(len(lev))
-            label_mapping[uniques] = np.arange(len(uniques))
-            lab = label_mapping[lab]
+                # labels get mapped from uniques to 0:len(uniques)
+                # -1 (if present) is mapped to last position
+                label_mapping = np.zeros(len(lev) + len(na_idx))
+                # ... and reassigned value -1:
+                label_mapping[uniques] = np.arange(len(uniques)) - len(na_idx)
 
-            # new levels are simple
-            lev = lev.take(uniques)
+                lab = label_mapping[lab]
+
+                # new levels are simple
+                lev = lev.take(uniques[len(na_idx):])
 
             new_levels.append(lev)
             new_labels.append(lab)
@@ -1362,10 +1427,12 @@ class MultiIndex(Index):
 
     @property
     def nlevels(self):
+        """Integer number of levels in this MultiIndex."""
         return len(self.levels)
 
     @property
     def levshape(self):
+        """A tuple with the length of each level."""
         return tuple(len(x) for x in self.levels)
 
     def __reduce__(self):
@@ -2214,12 +2281,12 @@ class MultiIndex(Index):
                         # here we have a completely specified key, but are
                         # using some partial string matching here
                         # GH4758
-                        all_dates = [(l.is_all_dates and
+                        all_dates = ((l.is_all_dates and
                                       not isinstance(k, compat.string_types))
-                                     for k, l in zip(key, self.levels)]
+                                     for k, l in zip(key, self.levels))
                         can_index_exactly = any(all_dates)
-                        if (any([l.is_all_dates
-                                 for k, l in zip(key, self.levels)]) and
+                        if (any(l.is_all_dates
+                                for k, l in zip(key, self.levels)) and
                                 not can_index_exactly):
                             indexer = self.get_loc(key)
 
@@ -2652,9 +2719,14 @@ class MultiIndex(Index):
 
     @Appender(_index_shared_docs['astype'])
     def astype(self, dtype, copy=True):
-        if not is_object_dtype(np.dtype(dtype)):
-            raise TypeError('Setting %s dtype to anything other than object '
-                            'is not supported' % self.__class__)
+        dtype = pandas_dtype(dtype)
+        if is_categorical_dtype(dtype):
+            msg = '> 1 ndim Categorical are not supported at this time'
+            raise NotImplementedError(msg)
+        elif not is_object_dtype(dtype):
+            msg = ('Setting {cls} dtype to anything other than object '
+                   'is not supported').format(cls=self.__class__)
+            raise TypeError(msg)
         elif copy is True:
             return self._shallow_copy()
         return self

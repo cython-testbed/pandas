@@ -257,6 +257,16 @@ if PY3:
     def u_safe(s):
         return s
 
+    def to_str(s):
+        """
+        Convert bytes and non-string into Python 3 str
+        """
+        if isinstance(s, binary_type):
+            s = bytes_to_str(s)
+        elif not isinstance(s, string_types):
+            s = str(s)
+        return s
+
     def strlen(data, encoding=None):
         # encoding is for compat with PY2
         return len(data)
@@ -266,7 +276,7 @@ if PY3:
         Calculate display width considering unicode East Asian Width
         """
         if isinstance(data, text_type):
-            return sum([_EAW_MAP.get(east_asian_width(c), ambiguous_width) for c in data])
+            return sum(_EAW_MAP.get(east_asian_width(c), ambiguous_width) for c in data)
         else:
             return len(data)
 
@@ -302,6 +312,14 @@ else:
         except:
             return s
 
+    def to_str(s):
+        """
+        Convert unicode and non-string into Python 2 str
+        """
+        if not isinstance(s, string_types):
+            s = str(s)
+        return s
+
     def strlen(data, encoding=None):
         try:
             data = data.decode(encoding)
@@ -318,7 +336,7 @@ else:
                 data = data.decode(encoding)
             except UnicodeError:
                 pass
-            return sum([_EAW_MAP.get(east_asian_width(c), ambiguous_width) for c in data])
+            return sum(_EAW_MAP.get(east_asian_width(c), ambiguous_width) for c in data)
         else:
             return len(data)
 
@@ -378,25 +396,13 @@ raise_with_traceback.__doc__ = """Raise exception with existing traceback.
 If traceback is not passed, uses sys.exc_info() to get traceback."""
 
 
-# http://stackoverflow.com/questions/4126348
-# Thanks to @martineau at SO
-
+# dateutil minimum version
 import dateutil
 
-if PY2 and LooseVersion(dateutil.__version__) == '2.0':
-    # dateutil brokenness
-    raise Exception('dateutil 2.0 incompatible with Python 2.x, you must '
-    'install version 1.5 or 2.1+!')
-
+if LooseVersion(dateutil.__version__) < LooseVersion('2.5'):
+    raise ImportError('dateutil 2.5.0 is the minimum required version')
 from dateutil import parser as _date_parser
-if LooseVersion(dateutil.__version__) < '2.0':
-
-    @functools.wraps(_date_parser.parse)
-    def parse_date(timestr, *args, **kwargs):
-        timestr = bytes(timestr)
-        return _date_parser.parse(timestr, *args, **kwargs)
-else:
-    parse_date = _date_parser.parse
+parse_date = _date_parser.parse
 
 
 # https://github.com/pandas-dev/pandas/pull/9123

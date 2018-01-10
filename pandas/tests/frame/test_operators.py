@@ -237,7 +237,7 @@ class TestDataFrameOperators(TestData):
         s = p[0]
         res = s % p
         res2 = p % s
-        assert not np.array_equal(res.fillna(0), res2.fillna(0))
+        assert not res.fillna(0).equals(res2.fillna(0))
 
     def test_div(self):
 
@@ -271,7 +271,7 @@ class TestDataFrameOperators(TestData):
         s = p[0]
         res = s / p
         res2 = p / s
-        assert not np.array_equal(res.fillna(0), res2.fillna(0))
+        assert not res.fillna(0).equals(res2.fillna(0))
 
     def test_logical_operators(self):
 
@@ -766,10 +766,10 @@ class TestDataFrameOperators(TestData):
 
         added = self.frame + frame_copy
 
-        indexer = added['A'].valid().index
+        indexer = added['A'].dropna().index
         exp = (self.frame['A'] * 2).copy()
 
-        tm.assert_series_equal(added['A'].valid(), exp.loc[indexer])
+        tm.assert_series_equal(added['A'].dropna(), exp.loc[indexer])
 
         exp.loc[~exp.index.isin(indexer)] = np.nan
         tm.assert_series_equal(added['A'], exp.loc[added['A'].index])
@@ -865,7 +865,7 @@ class TestDataFrameOperators(TestData):
 
         # 10890
         # we no longer allow auto timeseries broadcasting
-        # and require explict broadcasting
+        # and require explicit broadcasting
         added = self.tsframe.add(ts, axis='index')
 
         for key, col in compat.iteritems(self.tsframe):
@@ -1030,7 +1030,7 @@ class TestDataFrameOperators(TestData):
         assert_numpy_array_equal(result, expected.values)
 
         pytest.raises(ValueError, lambda: df == b_c)
-        assert not np.array_equal(df.values, b_c)
+        assert df.values.shape != b_c.shape
 
         # with alignment
         df = DataFrame(np.arange(6).reshape((3, 2)),

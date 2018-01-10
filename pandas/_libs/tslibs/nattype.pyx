@@ -26,6 +26,7 @@ from util cimport (get_nat,
 nat_strings = set(['NaT', 'nat', 'NAT', 'nan', 'NaN', 'NAN'])
 
 cdef int64_t NPY_NAT = get_nat()
+iNaT = NPY_NAT  # python-visible constant
 
 cdef bint _nat_scalar_rules[6]
 _nat_scalar_rules[Py_EQ] = False
@@ -336,15 +337,38 @@ class NaTType(_NaT):
     tzname = _make_error_func('tzname', datetime)
     utcoffset = _make_error_func('utcoffset', datetime)
 
-    # Timestamp has empty docstring for some methods.
-    utcfromtimestamp = _make_error_func('utcfromtimestamp', None)
-    fromtimestamp = _make_error_func('fromtimestamp', None)
-    combine = _make_error_func('combine', None)
-    utcnow = _make_error_func('utcnow', None)
-
     # ----------------------------------------------------------------------
     # The remaining methods have docstrings copy/pasted from the analogous
     # Timestamp methods.
+
+    utcfromtimestamp = _make_error_func('utcfromtimestamp',  # noqa:E128
+        """
+        Timestamp.utcfromtimestamp(ts)
+
+        Construct a naive UTC datetime from a POSIX timestamp.
+        """
+    )
+    fromtimestamp = _make_error_func('fromtimestamp',  # noqa:E128
+        """
+        Timestamp.fromtimestamp(ts)
+
+        timestamp[, tz] -> tz's local time from POSIX timestamp.
+        """
+    )
+    combine = _make_error_func('combine',  # noqa:E128
+        """
+        Timsetamp.combine(date, time)
+
+        date, time -> datetime with same date and time fields
+        """
+    )
+    utcnow = _make_error_func('utcnow',  # noqa:E128
+        """
+        Timestamp.utcnow()
+
+        Return a new Timestamp representing UTC day and time.
+        """
+    )
 
     timestamp = _make_error_func('timestamp',  # noqa:E128
         """Return POSIX timestamp as float.""")
@@ -357,7 +381,7 @@ class NaTType(_NaT):
 
         Parameters
         ----------
-        tz : string, pytz.timezone, dateutil.tz.tzfile or None
+        tz : str, pytz.timezone, dateutil.tz.tzfile or None
             Time zone for time which Timestamp will be converted to.
             None will remove timezone holding UTC time.
 
@@ -372,6 +396,8 @@ class NaTType(_NaT):
         """)
     fromordinal = _make_error_func('fromordinal',  # noqa:E128
         """
+        Timestamp.fromordinal(ordinal, freq=None, tz=None)
+
         passed an ordinal, translate and convert to a ts
         note: by definition there cannot be any tz info on the ordinal itself
 
@@ -381,10 +407,8 @@ class NaTType(_NaT):
             date corresponding to a proleptic Gregorian ordinal
         freq : str, DateOffset
             Offset which Timestamp will have
-        tz : string, pytz.timezone, dateutil.tz.tzfile or None
+        tz : str, pytz.timezone, dateutil.tz.tzfile or None
             Time zone for time which Timestamp will have.
-        offset : str, DateOffset
-            Deprecated, use freq
         """)
 
     # _nat_methods
@@ -397,23 +421,27 @@ class NaTType(_NaT):
 
     now = _make_nat_func('now',  # noqa:E128
         """
-        Return the current time in the local timezone.  Equivalent
-        to datetime.now([tz])
+        Timestamp.now(tz=None)
+
+        Returns new Timestamp object representing current time local to
+        tz.
 
         Parameters
         ----------
-        tz : string / timezone object, default None
+        tz : str or timezone object, default None
             Timezone to localize to
         """)
     today = _make_nat_func('today',  # noqa:E128
         """
+        Timestamp.today(cls, tz=None)
+
         Return the current time in the local timezone.  This differs
         from datetime.today() in that it can be localized to a
         passed timezone.
 
         Parameters
         ----------
-        tz : string / timezone object, default None
+        tz : str or timezone object, default None
             Timezone to localize to
         """)
     round = _make_nat_func('round',  # noqa:E128
@@ -455,7 +483,7 @@ class NaTType(_NaT):
 
         Parameters
         ----------
-        tz : string, pytz.timezone, dateutil.tz.tzfile or None
+        tz : str, pytz.timezone, dateutil.tz.tzfile or None
             Time zone for time which Timestamp will be converted to.
             None will remove timezone holding UTC time.
 
@@ -475,7 +503,7 @@ class NaTType(_NaT):
 
         Parameters
         ----------
-        tz : string, pytz.timezone, dateutil.tz.tzfile or None
+        tz : str, pytz.timezone, dateutil.tz.tzfile or None
             Time zone for time which Timestamp will be converted to.
             None will remove timezone holding local time.
 
@@ -526,23 +554,13 @@ class NaTType(_NaT):
         Timestamp with fields replaced
         """)
 
-    def to_datetime(self):
-        """
-        DEPRECATED: use :meth:`to_pydatetime` instead.
-
-        Convert a Timestamp object to a native Python datetime object.
-        """
-        warnings.warn("to_datetime is deprecated. Use self.to_pydatetime()",
-                      FutureWarning, stacklevel=2)
-        return self.to_pydatetime(warn=False)
-
 
 NaT = NaTType()
 
 
 # ----------------------------------------------------------------------
 
-cdef inline bint _checknull_with_nat(object val):
+cdef inline bint checknull_with_nat(object val):
     """ utility to check if a value is a nat or not """
     return val is None or (
         PyFloat_Check(val) and val != val) or val is NaT

@@ -4,8 +4,7 @@ from pandas._libs import (index as libindex,
 from pandas.core.dtypes.common import (
     is_dtype_equal,
     pandas_dtype,
-    is_float_dtype,
-    is_object_dtype,
+    needs_i8_conversion,
     is_integer_dtype,
     is_bool,
     is_bool_dtype,
@@ -39,7 +38,7 @@ class NumericIndex(Index):
         if fastpath:
             return cls._simple_new(data, name=name)
 
-        # isscalar, generators handled in coerce_to_ndarray
+        # is_scalar, generators handled in coerce_to_ndarray
         data = cls._coerce_to_ndarray(data)
 
         if issubclass(data.dtype.type, compat.string_types):
@@ -61,6 +60,14 @@ class NumericIndex(Index):
 
         # we will try to coerce to integers
         return self._maybe_cast_indexer(label)
+
+    @Appender(_index_shared_docs['_shallow_copy'])
+    def _shallow_copy(self, values=None, **kwargs):
+        if values is not None and not self._can_hold_na:
+            # Ensure we are not returning an Int64Index with float data:
+            return self._shallow_copy_with_infer(values=values, **kwargs)
+        return (super(NumericIndex, self)._shallow_copy(values=values,
+                                                        **kwargs))
 
     def _convert_for_op(self, value):
         """ Convert value to be insertable to ndarray """
@@ -122,6 +129,14 @@ _num_index_shared_docs['class_descr'] = """
     name : object
         Name to be stored in the index
 
+    Attributes
+    ----------
+    inferred_type
+
+    Methods
+    -------
+    None
+
     Notes
     -----
     An Index instance can **only** contain hashable objects.
@@ -154,6 +169,7 @@ class Int64Index(NumericIndex):
 
     @property
     def inferred_type(self):
+        """Always 'integer' for ``Int64Index``"""
         return 'integer'
 
     @property
@@ -207,12 +223,12 @@ class UInt64Index(NumericIndex):
     _inner_indexer = libjoin.inner_join_indexer_uint64
     _outer_indexer = libjoin.outer_join_indexer_uint64
     _can_hold_na = False
-    _na_value = 0
     _engine_type = libindex.UInt64Engine
     _default_dtype = np.uint64
 
     @property
     def inferred_type(self):
+        """Always 'integer' for ``UInt64Index``"""
         return 'integer'
 
     @property
@@ -290,24 +306,20 @@ class Float64Index(NumericIndex):
 
     @property
     def inferred_type(self):
+        """Always 'floating' for ``Float64Index``"""
         return 'floating'
 
     @Appender(_index_shared_docs['astype'])
     def astype(self, dtype, copy=True):
         dtype = pandas_dtype(dtype)
-        if is_float_dtype(dtype):
-            values = self._values.astype(dtype, copy=copy)
-        elif is_integer_dtype(dtype):
-            if self.hasnans:
-                raise ValueError('cannot convert float NaN to integer')
-            values = self._values.astype(dtype, copy=copy)
-        elif is_object_dtype(dtype):
-            values = self._values.astype('object', copy=copy)
-        else:
-            raise TypeError('Setting %s dtype to anything other than '
-                            'float64 or object is not supported' %
-                            self.__class__)
-        return Index(values, name=self.name, dtype=dtype)
+        if needs_i8_conversion(dtype):
+            msg = ('Cannot convert Float64Index to dtype {dtype}; integer '
+                   'values are required for conversion').format(dtype=dtype)
+            raise TypeError(msg)
+        elif is_integer_dtype(dtype) and self.hasnans:
+            # GH 13149
+            raise ValueError('Cannot convert NA to integer')
+        return super(Float64Index, self).astype(dtype, copy=copy)
 
     @Appender(_index_shared_docs['_convert_scalar_indexer'])
     def _convert_scalar_indexer(self, key, kind=None):
@@ -385,9 +397,11 @@ class Float64Index(NumericIndex):
             try:
                 return len(other) <= 1 and ibase._try_get_item(other) in self
             except TypeError:
-                return False
-        except:
-            return False
+                pass
+        except TypeError:
+            pass
+
+        return False
 
     @Appender(_index_shared_docs['get_loc'])
     def get_loc(self, key, method=None, tolerance=None):

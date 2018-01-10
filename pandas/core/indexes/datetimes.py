@@ -10,15 +10,19 @@ from pytz import utc
 from pandas.core.base import _shared_docs
 
 from pandas.core.dtypes.common import (
-    _NS_DTYPE, _INT64_DTYPE,
-    is_object_dtype, is_datetime64_dtype,
-    is_datetimetz, is_dtype_equal,
-    is_integer, is_float,
+    _INT64_DTYPE,
+    _NS_DTYPE,
+    is_object_dtype,
+    is_datetime64_dtype, is_datetime64tz_dtype,
+    is_datetimetz,
+    is_dtype_equal,
+    is_timedelta64_dtype,
+    is_integer,
+    is_float,
     is_integer_dtype,
-    is_datetime64_ns_dtype,
+    is_datetime64_ns_dtype, is_datetimelike,
     is_period_dtype,
     is_bool_dtype,
-    is_string_dtype,
     is_string_like,
     is_list_like,
     is_scalar,
@@ -36,26 +40,23 @@ from pandas.core.algorithms import checked_add_with_arr
 from pandas.core.indexes.base import Index, _index_shared_docs
 from pandas.core.indexes.numeric import Int64Index, Float64Index
 import pandas.compat as compat
-from pandas.tseries.frequencies import (
-    to_offset, get_period_alias,
-    Resolution)
+from pandas.tseries.frequencies import to_offset, get_period_alias, Resolution
 from pandas.core.indexes.datetimelike import (
     DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin)
 from pandas.tseries.offsets import (
     DateOffset, generate_range, Tick, CDay, prefix_mapping)
-from pandas.core.tools.datetimes import (
-    parse_time_string, normalize_date, to_time)
+
 from pandas.core.tools.timedeltas import to_timedelta
-from pandas.util._decorators import (Appender, cache_readonly,
-                                     deprecate_kwarg, Substitution)
+from pandas.util._decorators import (
+    Appender, cache_readonly, deprecate_kwarg, Substitution)
 import pandas.core.common as com
 import pandas.tseries.offsets as offsets
 import pandas.core.tools.datetimes as tools
 
 from pandas._libs import (lib, index as libindex, tslib as libts,
-                          algos as libalgos, join as libjoin,
-                          Timestamp, period as libperiod)
-from pandas._libs.tslibs import timezones, conversion
+                          join as libjoin, Timestamp)
+from pandas._libs.tslibs import (timezones, conversion, fields, parsing,
+                                 period as libperiod)
 
 # -------- some conversion wrapper functions
 
@@ -75,20 +76,20 @@ def _field_accessor(name, field, docstring=None):
                                                self.freq.kwds.get('month', 12))
                             if self.freq else 12)
 
-                result = libts.get_start_end_field(values, field, self.freqstr,
-                                                   month_kw)
+                result = fields.get_start_end_field(values, field,
+                                                    self.freqstr, month_kw)
             else:
-                result = libts.get_date_field(values, field)
+                result = fields.get_date_field(values, field)
 
             # these return a boolean by-definition
             return result
 
         if field in self._object_ops:
-            result = libts.get_date_name_field(values, field)
+            result = fields.get_date_name_field(values, field)
             result = self._maybe_mask_results(result)
 
         else:
-            result = libts.get_date_field(values, field)
+            result = fields.get_date_field(values, field)
             result = self._maybe_mask_results(result, convert='float64')
 
         return Index(result, name=self.name)
@@ -98,15 +99,19 @@ def _field_accessor(name, field, docstring=None):
     return property(f)
 
 
-def _dt_index_cmp(opname, nat_result=False):
+def _dt_index_cmp(opname, cls, nat_result=False):
     """
     Wrap comparison operations to convert datetime-like to datetime64
     """
 
     def wrapper(self, other):
         func = getattr(super(DatetimeIndex, self), opname)
-        if (isinstance(other, datetime) or
-                isinstance(other, compat.string_types)):
+
+        if isinstance(other, (datetime, compat.string_types)):
+            if isinstance(other, datetime):
+                # GH#18435 strings get a pass from tzawareness compat
+                self._assert_tzawareness_compat(other)
+
             other = _to_m8(other, tz=self.tz)
             result = func(other)
             if isna(other):
@@ -116,6 +121,10 @@ def _dt_index_cmp(opname, nat_result=False):
                 other = DatetimeIndex(other)
             elif not isinstance(other, (np.ndarray, Index, ABCSeries)):
                 other = _ensure_datetime64(other)
+
+            if is_datetimelike(other):
+                self._assert_tzawareness_compat(other)
+
             result = func(np.asarray(other))
             result = _values_from_object(result)
 
@@ -135,7 +144,7 @@ def _dt_index_cmp(opname, nat_result=False):
             return result
         return Index(result)
 
-    return wrapper
+    return compat.set_function_name(wrapper, opname, cls)
 
 
 def _ensure_datetime64(other):
@@ -203,6 +212,53 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
     name : object
         Name to be stored in the index
 
+    Attributes
+    ----------
+    year
+    month
+    day
+    hour
+    minute
+    second
+    microsecond
+    nanosecond
+    date
+    time
+    dayofyear
+    weekofyear
+    week
+    dayofweek
+    weekday
+    weekday_name
+    quarter
+    tz
+    freq
+    freqstr
+    is_month_start
+    is_month_end
+    is_quarter_start
+    is_quarter_end
+    is_year_start
+    is_year_end
+    is_leap_year
+    inferred_freq
+
+    Methods
+    -------
+    normalize
+    strftime
+    snap
+    tz_convert
+    tz_localize
+    round
+    floor
+    ceil
+    to_period
+    to_perioddelta
+    to_pydatetime
+    to_series
+    to_frame
+
     Notes
     -----
     To learn more about the frequency strings, please see `this link
@@ -229,12 +285,15 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         libjoin.left_join_indexer_unique_int64, with_indexers=False)
     _arrmap = None
 
-    __eq__ = _dt_index_cmp('__eq__')
-    __ne__ = _dt_index_cmp('__ne__', nat_result=True)
-    __lt__ = _dt_index_cmp('__lt__')
-    __gt__ = _dt_index_cmp('__gt__')
-    __le__ = _dt_index_cmp('__le__')
-    __ge__ = _dt_index_cmp('__ge__')
+    @classmethod
+    def _add_comparison_methods(cls):
+        """ add in comparison methods """
+        cls.__eq__ = _dt_index_cmp('__eq__', cls)
+        cls.__ne__ = _dt_index_cmp('__ne__', cls, nat_result=True)
+        cls.__lt__ = _dt_index_cmp('__lt__', cls)
+        cls.__gt__ = _dt_index_cmp('__gt__', cls)
+        cls.__le__ = _dt_index_cmp('__le__', cls)
+        cls.__ge__ = _dt_index_cmp('__ge__', cls)
 
     _engine_type = libindex.DatetimeEngine
 
@@ -304,7 +363,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
             raise ValueError("Must provide freq argument if no data is "
                              "supplied")
 
-        # if dtype has an embeded tz, capture it
+        # if dtype has an embedded tz, capture it
         if dtype is not None:
             try:
                 dtype = DatetimeTZDtype.construct_from_string(dtype)
@@ -361,7 +420,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
                     verify_integrity = False
             else:
                 if data.dtype != _NS_DTYPE:
-                    subarr = libts.cast_to_nanoseconds(data)
+                    subarr = conversion.ensure_datetime64ns(data)
                 else:
                     subarr = data
         else:
@@ -472,14 +531,14 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
 
         if start is not None:
             if normalize:
-                start = normalize_date(start)
+                start = libts.normalize_date(start)
                 _normalized = True
             else:
                 _normalized = _normalized and start.time() == _midnight
 
         if end is not None:
             if normalize:
-                end = normalize_date(end)
+                end = libts.normalize_date(end)
                 _normalized = True
             else:
                 _normalized = _normalized and end.time() == _midnight
@@ -600,6 +659,20 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         result.tz = timezones.maybe_get_tz(tz)
         result._reset_identity()
         return result
+
+    def _assert_tzawareness_compat(self, other):
+        # adapted from _Timestamp._assert_tzawareness_compat
+        other_tz = getattr(other, 'tzinfo', None)
+        if is_datetime64tz_dtype(other):
+            # Get tzinfo from Series dtype
+            other_tz = other.dtype.tz
+        if self.tz is None:
+            if other_tz is not None:
+                raise TypeError('Cannot compare tz-naive and tz-aware '
+                                'datetime-like objects.')
+        elif other_tz is None:
+            raise TypeError('Cannot compare tz-naive and tz-aware '
+                            'datetime-like objects')
 
     @property
     def tzinfo(self):
@@ -803,15 +876,21 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         return attrs
 
     def _add_delta(self, delta):
+        if isinstance(delta, ABCSeries):
+            return NotImplemented
+
         from pandas import TimedeltaIndex
         name = self.name
 
         if isinstance(delta, (Tick, timedelta, np.timedelta64)):
             new_values = self._add_delta_td(delta)
-        elif isinstance(delta, TimedeltaIndex):
+        elif is_timedelta64_dtype(delta):
+            if not isinstance(delta, TimedeltaIndex):
+                delta = TimedeltaIndex(delta)
+            else:
+                # update name when delta is Index
+                name = com._maybe_match_name(self, delta)
             new_values = self._add_delta_tdi(delta)
-            # update name when delta is Index
-            name = com._maybe_match_name(self, delta)
         elif isinstance(delta, DateOffset):
             new_values = self._add_offset(delta).asi8
         else:
@@ -839,6 +918,32 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
                           "or DatetimeIndex", PerformanceWarning)
             return self.astype('O') + offset
 
+    def _add_offset_array(self, other):
+        # Array/Index of DateOffset objects
+        if isinstance(other, ABCSeries):
+            return NotImplemented
+        elif len(other) == 1:
+            return self + other[0]
+        else:
+            warnings.warn("Adding/subtracting array of DateOffsets to "
+                          "{} not vectorized".format(type(self)),
+                          PerformanceWarning)
+            return self.astype('O') + np.array(other)
+            # TODO: This works for __add__ but loses dtype in __sub__
+
+    def _sub_offset_array(self, other):
+        # Array/Index of DateOffset objects
+        if isinstance(other, ABCSeries):
+            return NotImplemented
+        elif len(other) == 1:
+            return self - other[0]
+        else:
+            warnings.warn("Adding/subtracting array of DateOffsets to "
+                          "{} not vectorized".format(type(self)),
+                          PerformanceWarning)
+            res_values = self.astype('O').values - np.array(other)
+            return self.__class__(res_values, freq='infer')
+
     def _format_native_types(self, na_rep='NaT', date_format=None, **kwargs):
         from pandas.io.formats.format import _get_format_datetime64_from_values
         format = _get_format_datetime64_from_values(self, date_format)
@@ -848,36 +953,27 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
                                                 format=format,
                                                 na_rep=na_rep)
 
-    def to_datetime(self, dayfirst=False):
-        return self.copy()
-
     @Appender(_index_shared_docs['astype'])
     def astype(self, dtype, copy=True):
         dtype = pandas_dtype(dtype)
-        if is_object_dtype(dtype):
-            return self.asobject
-        elif is_integer_dtype(dtype):
-            return Index(self.values.astype('i8', copy=copy), name=self.name,
-                         dtype='i8')
-        elif is_datetime64_ns_dtype(dtype):
-            if self.tz is not None:
-                return self.tz_convert('UTC').tz_localize(None)
-            elif copy is True:
-                return self.copy()
-            return self
-        elif is_string_dtype(dtype):
-            return Index(self.format(), name=self.name, dtype=object)
+        if (is_datetime64_ns_dtype(dtype) and
+                not is_dtype_equal(dtype, self.dtype)):
+            # GH 18951: datetime64_ns dtype but not equal means different tz
+            new_tz = getattr(dtype, 'tz', None)
+            if getattr(self.dtype, 'tz', None) is None:
+                return self.tz_localize(new_tz)
+            return self.tz_convert(new_tz)
         elif is_period_dtype(dtype):
             return self.to_period(freq=dtype.freq)
-        raise ValueError('Cannot cast DatetimeIndex to dtype %s' % dtype)
+        return super(DatetimeIndex, self).astype(dtype, copy=copy)
 
     def _get_time_micros(self):
         values = self.asi8
         if self.tz is not None and self.tz is not utc:
             values = self._local_timestamps()
-        return libts.get_time_micros(values)
+        return fields.get_time_micros(values)
 
-    def to_series(self, keep_tz=False):
+    def to_series(self, keep_tz=False, index=None, name=None):
         """
         Create a Series with both index and values equal to the index keys
         useful with map for returning an indexer based on an index
@@ -899,22 +995,34 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
 
               Series will have a datetime64[ns] dtype. TZ aware
               objects will have the tz removed.
+        index : Index, optional
+            index of resulting Series. If None, defaults to original index
+        name : string, optional
+            name of resulting Series. If None, defaults to name of original
+            index
 
         Returns
         -------
         Series
         """
         from pandas import Series
-        return Series(self._to_embed(keep_tz),
-                      index=self._shallow_copy(),
-                      name=self.name)
 
-    def _to_embed(self, keep_tz=False):
+        if index is None:
+            index = self._shallow_copy()
+        if name is None:
+            name = self.name
+
+        return Series(self._to_embed(keep_tz), index=index, name=name)
+
+    def _to_embed(self, keep_tz=False, dtype=None):
         """
         return an array repr of this object, potentially casting to object
 
         This is for internal compat
         """
+        if dtype is not None:
+            return self.astype(dtype)._to_embed(keep_tz=keep_tz)
+
         if keep_tz and self.tz is not None:
 
             # preserve the tz & copy
@@ -1183,9 +1291,8 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
             end_i = min((i + 1) * chunksize, length)
             converted = libts.ints_to_pydatetime(data[start_i:end_i],
                                                  tz=self.tz, freq=self.freq,
-                                                 box=True)
-            for v in converted:
-                yield v
+                                                 box="timestamp")
+            return iter(converted)
 
     def _wrap_union_result(self, other, result):
         name = self.name if self.name == other.name else None
@@ -1474,7 +1581,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         if isinstance(label, compat.string_types):
             freq = getattr(self, 'freqstr',
                            getattr(self, 'inferred_freq', None))
-            _, parsed, reso = parse_time_string(label, freq)
+            _, parsed, reso = parsing.parse_time_string(label, freq)
             lower, upper = self._parsed_string_to_bounds(reso, parsed)
             # lower, upper form the half-open interval:
             #   [parsed, parsed + 1 freq)
@@ -1491,7 +1598,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
     def _get_string_slice(self, key, use_lhs=True, use_rhs=True):
         freq = getattr(self, 'freqstr',
                        getattr(self, 'inferred_freq', None))
-        _, parsed, reso = parse_time_string(key, freq)
+        _, parsed, reso = parsing.parse_time_string(key, freq)
         loc = self._partial_date_slice(reso, parsed, use_lhs=use_lhs,
                                        use_rhs=use_rhs)
         return loc
@@ -1548,14 +1655,15 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
             else:
                 raise
 
-    # alias to offset
-    def _get_freq(self):
+    @property
+    def freq(self):
+        """get/set the frequency of the Index"""
         return self.offset
 
-    def _set_freq(self, value):
+    @freq.setter
+    def freq(self, value):
+        """get/set the frequency of the Index"""
         self.offset = value
-    freq = property(fget=_get_freq, fset=_set_freq,
-                    doc="get/set the frequency of the Index")
 
     year = _field_accessor('year', 'Y', "The year of the datetime")
     month = _field_accessor('month', 'M',
@@ -1622,9 +1730,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         """
         Returns numpy array of datetime.time. The time part of the Timestamps.
         """
-        return self._maybe_mask_results(libalgos.arrmap_object(
-            self.asobject.values,
-            lambda x: np.nan if x is libts.NaT else x.time()))
+        return libts.ints_to_pydatetime(self.asi8, self.tz, box="time")
 
     @property
     def date(self):
@@ -1632,8 +1738,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         Returns numpy array of python datetime.date objects (namely, the date
         part of Timestamps without timezone information).
         """
-        return self._maybe_mask_results(libalgos.arrmap_object(
-            self.asobject.values, lambda x: x.date()))
+        return libts.ints_to_pydatetime(self.normalize().asi8, box="date")
 
     def normalize(self):
         """
@@ -1703,12 +1808,15 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         -------
         new_index : Index
         """
+        if is_scalar(item) and isna(item):
+            # GH 18295
+            item = self._na_value
 
         freq = None
 
         if isinstance(item, (datetime, np.datetime64)):
             self._assert_can_do_op(item)
-            if not self._has_same_tz(item):
+            if not self._has_same_tz(item) and not isna(item):
                 raise ValueError(
                     'Passed item and index have different timezone')
             # check freq can be preserved on edge cases
@@ -1719,6 +1827,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
                 elif (loc == len(self)) and item - self.freq == self[-1]:
                     freq = self.freq
             item = _to_m8(item, tz=self.tz)
+
         try:
             new_dates = np.concatenate((self[:loc].asi8, [item.view(np.int64)],
                                         self[loc:].asi8))
@@ -1726,12 +1835,11 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
                 new_dates = conversion.tz_convert(new_dates, 'UTC', self.tz)
             return DatetimeIndex(new_dates, name=self.name, freq=freq,
                                  tz=self.tz)
-
         except (AttributeError, TypeError):
 
             # fall back to object index
             if isinstance(item, compat.string_types):
-                return self.asobject.insert(loc, item)
+                return self.astype(object).insert(loc, item)
             raise TypeError(
                 "cannot insert DatetimeIndex with incompatible label")
 
@@ -1907,8 +2015,8 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
         -------
         values_between_time : TimeSeries
         """
-        start_time = to_time(start_time)
-        end_time = to_time(end_time)
+        start_time = tools.to_time(start_time)
+        end_time = tools.to_time(end_time)
         time_micros = self._get_time_micros()
         start_micros = _time_to_micros(start_time)
         end_micros = _time_to_micros(end_time)
@@ -1963,6 +2071,7 @@ class DatetimeIndex(DatelikeOps, TimelikeOps, DatetimeIndexOpsMixin,
                              ) / 24.0)
 
 
+DatetimeIndex._add_comparison_methods()
 DatetimeIndex._add_numeric_methods_disabled()
 DatetimeIndex._add_logical_methods_disabled()
 DatetimeIndex._add_datetimelike_methods()

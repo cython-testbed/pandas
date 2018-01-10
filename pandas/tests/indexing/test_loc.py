@@ -8,8 +8,7 @@ import numpy as np
 
 import pandas as pd
 from pandas.compat import lrange, StringIO
-from pandas import (Series, DataFrame, Timestamp,
-                    date_range, MultiIndex)
+from pandas import Series, DataFrame, Timestamp, date_range, MultiIndex
 from pandas.util import testing as tm
 from pandas.tests.indexing.common import Base
 
@@ -18,7 +17,7 @@ class TestLoc(Base):
 
     def test_loc_getitem_dups(self):
         # GH 5678
-        # repeated gettitems on a dup index returing a ndarray
+        # repeated gettitems on a dup index returning a ndarray
         df = DataFrame(
             np.random.random_sample((20, 5)),
             index=['ABCDE' [x % 5] for x in range(20)])
@@ -165,13 +164,13 @@ class TestLoc(Base):
                           typs=['ints', 'uints'], axes=2, fails=KeyError)
 
     def test_getitem_label_list_with_missing(self):
-        s = pd.Series(range(3), index=['a', 'b', 'c'])
+        s = Series(range(3), index=['a', 'b', 'c'])
 
         # consistency
         with tm.assert_produces_warning(FutureWarning, check_stacklevel=False):
             s[['a', 'd']]
 
-        s = pd.Series(range(3))
+        s = Series(range(3))
         with tm.assert_produces_warning(FutureWarning, check_stacklevel=False):
             s[[0, 3]]
 
@@ -386,7 +385,7 @@ class TestLoc(Base):
 
     def test_loc_setitem_consistency(self):
         # GH 6149
-        # coerce similary for setitem and loc when rows have a null-slice
+        # coerce similarly for setitem and loc when rows have a null-slice
         expected = DataFrame({'date': Series(0, index=range(5),
                                              dtype=np.int64),
                               'val': Series(range(5), dtype=np.int64)})
@@ -552,7 +551,7 @@ Region_1,Site_2,3977723089,A,5/20/2015 8:33,5/20/2015 9:09,Yes,No"""
     def test_loc_coerceion(self):
 
         # 12411
-        df = DataFrame({'date': [pd.Timestamp('20130101').tz_localize('UTC'),
+        df = DataFrame({'date': [Timestamp('20130101').tz_localize('UTC'),
                                  pd.NaT]})
         expected = df.dtypes
 
@@ -589,7 +588,7 @@ Region_1,Site_2,3977723089,A,5/20/2015 8:33,5/20/2015 9:09,Yes,No"""
         # non-unique indexer with loc slice
         # https://groups.google.com/forum/?fromgroups#!topic/pydata/zTm2No0crYs
 
-        # these are going to raise becuase the we are non monotonic
+        # these are going to raise because the we are non monotonic
         df = DataFrame({'A': [1, 2, 3, 4, 5, 6],
                         'B': [3, 4, 5, 6, 7, 8]}, index=[0, 1, 0, 1, 2, 3])
         pytest.raises(KeyError, df.loc.__getitem__,

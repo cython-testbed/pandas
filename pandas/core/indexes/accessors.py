@@ -14,7 +14,7 @@ from pandas.core.dtypes.common import (
 from pandas.core.accessor import PandasDelegate
 from pandas.core.base import NoNewAttributesMixin, PandasObject
 from pandas.core.indexes.datetimes import DatetimeIndex
-from pandas._libs.period import IncompatibleFrequency  # noqa
+from pandas._libs.tslibs.period import IncompatibleFrequency  # noqa
 from pandas.core.indexes.period import PeriodIndex
 from pandas.core.indexes.timedeltas import TimedeltaIndex
 from pandas.core.algorithms import take_1d
@@ -113,9 +113,9 @@ class Properties(PandasDelegate, PandasObject, NoNewAttributesMixin):
         result = Series(result, index=self.index, name=self.name)
 
         # setting this object will show a SettingWithCopyWarning/Error
-        result.is_copy = ("modifications to a property of a datetimelike "
-                          "object are not supported and are discarded. "
-                          "Change values on the original.")
+        result._is_copy = ("modifications to a property of a datetimelike "
+                           "object are not supported and are discarded. "
+                           "Change values on the original.")
 
         return result
 
@@ -136,9 +136,9 @@ class Properties(PandasDelegate, PandasObject, NoNewAttributesMixin):
         result = Series(result, index=self.index, name=self.name)
 
         # setting this object will show a SettingWithCopyWarning/Error
-        result.is_copy = ("modifications to a method of a datetimelike object "
-                          "are not supported and are discarded. Change "
-                          "values on the original.")
+        result._is_copy = ("modifications to a method of a datetimelike "
+                           "object are not supported and are discarded. "
+                           "Change values on the original.")
 
         return result
 

@@ -58,36 +58,37 @@ class TestDatetimeIndexArithmetic(object):
     # -------------------------------------------------------------
     # Binary operations DatetimeIndex and int
 
-    def test_dti_add_int(self, tz):
+    def test_dti_add_int(self, tz, one):
+        # Variants of `one` for #19012
         rng = pd.date_range('2000-01-01 09:00', freq='H',
                             periods=10, tz=tz)
-        result = rng + 1
+        result = rng + one
         expected = pd.date_range('2000-01-01 10:00', freq='H',
                                  periods=10, tz=tz)
         tm.assert_index_equal(result, expected)
 
-    def test_dti_iadd_int(self, tz):
+    def test_dti_iadd_int(self, tz, one):
         rng = pd.date_range('2000-01-01 09:00', freq='H',
                             periods=10, tz=tz)
         expected = pd.date_range('2000-01-01 10:00', freq='H',
                                  periods=10, tz=tz)
-        rng += 1
+        rng += one
         tm.assert_index_equal(rng, expected)
 
-    def test_dti_sub_int(self, tz):
+    def test_dti_sub_int(self, tz, one):
         rng = pd.date_range('2000-01-01 09:00', freq='H',
                             periods=10, tz=tz)
-        result = rng - 1
+        result = rng - one
         expected = pd.date_range('2000-01-01 08:00', freq='H',
                                  periods=10, tz=tz)
         tm.assert_index_equal(result, expected)
 
-    def test_dti_isub_int(self, tz):
+    def test_dti_isub_int(self, tz, one):
         rng = pd.date_range('2000-01-01 09:00', freq='H',
                             periods=10, tz=tz)
         expected = pd.date_range('2000-01-01 08:00', freq='H',
                                  periods=10, tz=tz)
-        rng -= 1
+        rng -= one
         tm.assert_index_equal(rng, expected)
 
     # -------------------------------------------------------------
@@ -120,6 +121,99 @@ class TestDatetimeIndexArithmetic(object):
                                  '2000-01-31 22:00', tz=tz)
         rng -= delta
         tm.assert_index_equal(rng, expected)
+
+    # -------------------------------------------------------------
+    # Binary operations DatetimeIndex and TimedeltaIndex/array
+    def test_dti_add_tdi(self, tz):
+        # GH 17558
+        dti = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        tdi = pd.timedelta_range('0 days', periods=10)
+        expected = pd.date_range('2017-01-01', periods=10, tz=tz)
+
+        # add with TimdeltaIndex
+        result = dti + tdi
+        tm.assert_index_equal(result, expected)
+
+        result = tdi + dti
+        tm.assert_index_equal(result, expected)
+
+        # add with timedelta64 array
+        result = dti + tdi.values
+        tm.assert_index_equal(result, expected)
+
+        result = tdi.values + dti
+        tm.assert_index_equal(result, expected)
+
+    def test_dti_iadd_tdi(self, tz):
+        # GH 17558
+        dti = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        tdi = pd.timedelta_range('0 days', periods=10)
+        expected = pd.date_range('2017-01-01', periods=10, tz=tz)
+
+        # iadd with TimdeltaIndex
+        result = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        result += tdi
+        tm.assert_index_equal(result, expected)
+
+        result = pd.timedelta_range('0 days', periods=10)
+        result += dti
+        tm.assert_index_equal(result, expected)
+
+        # iadd with timedelta64 array
+        result = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        result += tdi.values
+        tm.assert_index_equal(result, expected)
+
+        result = pd.timedelta_range('0 days', periods=10)
+        result += dti
+        tm.assert_index_equal(result, expected)
+
+    def test_dti_sub_tdi(self, tz):
+        # GH 17558
+        dti = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        tdi = pd.timedelta_range('0 days', periods=10)
+        expected = pd.date_range('2017-01-01', periods=10, tz=tz, freq='-1D')
+
+        # sub with TimedeltaIndex
+        result = dti - tdi
+        tm.assert_index_equal(result, expected)
+
+        msg = 'cannot subtract TimedeltaIndex and DatetimeIndex'
+        with tm.assert_raises_regex(TypeError, msg):
+            tdi - dti
+
+        # sub with timedelta64 array
+        result = dti - tdi.values
+        tm.assert_index_equal(result, expected)
+
+        msg = 'cannot perform __neg__ with this index type:'
+        with tm.assert_raises_regex(TypeError, msg):
+            tdi.values - dti
+
+    def test_dti_isub_tdi(self, tz):
+        # GH 17558
+        dti = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        tdi = pd.timedelta_range('0 days', periods=10)
+        expected = pd.date_range('2017-01-01', periods=10, tz=tz, freq='-1D')
+
+        # isub with TimedeltaIndex
+        result = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        result -= tdi
+        tm.assert_index_equal(result, expected)
+
+        msg = 'cannot subtract TimedeltaIndex and DatetimeIndex'
+        with tm.assert_raises_regex(TypeError, msg):
+            tdi -= dti
+
+        # isub with timedelta64 array
+        result = DatetimeIndex([Timestamp('2017-01-01', tz=tz)] * 10)
+        result -= tdi.values
+        tm.assert_index_equal(result, expected)
+
+        msg = '|'.join(['cannot perform __neg__ with this index type:',
+                        'ufunc subtract cannot use operands with types'])
+        with tm.assert_raises_regex(TypeError, msg):
+            tdi.values -= dti
 
     # -------------------------------------------------------------
     # Binary Operations DatetimeIndex and datetime-like
@@ -269,6 +363,88 @@ class TestDatetimeIndexArithmetic(object):
         for variant in ts_pos_variants:
             with pytest.raises(OverflowError):
                 dtimin - variant
+
+    @pytest.mark.parametrize('names', [('foo', None, None),
+                                       ('baz', 'bar', None),
+                                       ('bar', 'bar', 'bar')])
+    @pytest.mark.parametrize('tz', [None, 'America/Chicago'])
+    def test_dti_add_series(self, tz, names):
+        # GH#13905
+        index = DatetimeIndex(['2016-06-28 05:30', '2016-06-28 05:31'],
+                              tz=tz, name=names[0])
+        ser = Series([Timedelta(seconds=5)] * 2,
+                     index=index, name=names[1])
+        expected = Series(index + Timedelta(seconds=5),
+                          index=index, name=names[2])
+
+        # passing name arg isn't enough when names[2] is None
+        expected.name = names[2]
+        assert expected.dtype == index.dtype
+        result = ser + index
+        tm.assert_series_equal(result, expected)
+        result2 = index + ser
+        tm.assert_series_equal(result2, expected)
+
+        expected = index + Timedelta(seconds=5)
+        result3 = ser.values + index
+        tm.assert_index_equal(result3, expected)
+        result4 = index + ser.values
+        tm.assert_index_equal(result4, expected)
+
+    @pytest.mark.parametrize('box', [np.array, pd.Index])
+    def test_dti_add_offset_array(self, tz, box):
+        # GH#18849
+        dti = pd.date_range('2017-01-01', periods=2, tz=tz)
+        other = box([pd.offsets.MonthEnd(), pd.offsets.Day(n=2)])
+
+        with tm.assert_produces_warning(PerformanceWarning):
+            res = dti + other
+        expected = DatetimeIndex([dti[n] + other[n] for n in range(len(dti))],
+                                 name=dti.name, freq='infer')
+        tm.assert_index_equal(res, expected)
+
+        with tm.assert_produces_warning(PerformanceWarning):
+            res2 = other + dti
+        tm.assert_index_equal(res2, expected)
+
+    @pytest.mark.parametrize('box', [np.array, pd.Index])
+    def test_dti_sub_offset_array(self, tz, box):
+        # GH#18824
+        dti = pd.date_range('2017-01-01', periods=2, tz=tz)
+        other = box([pd.offsets.MonthEnd(), pd.offsets.Day(n=2)])
+
+        with tm.assert_produces_warning(PerformanceWarning):
+            res = dti - other
+        expected = DatetimeIndex([dti[n] - other[n] for n in range(len(dti))],
+                                 name=dti.name, freq='infer')
+        tm.assert_index_equal(res, expected)
+
+    @pytest.mark.parametrize('names', [(None, None, None),
+                                       ('foo', 'bar', None),
+                                       ('foo', 'foo', 'foo')])
+    def test_dti_with_offset_series(self, tz, names):
+        # GH#18849
+        dti = pd.date_range('2017-01-01', periods=2, tz=tz, name=names[0])
+        other = Series([pd.offsets.MonthEnd(), pd.offsets.Day(n=2)],
+                       name=names[1])
+
+        expected_add = Series([dti[n] + other[n] for n in range(len(dti))],
+                              name=names[2])
+
+        with tm.assert_produces_warning(PerformanceWarning):
+            res = dti + other
+        tm.assert_series_equal(res, expected_add)
+
+        with tm.assert_produces_warning(PerformanceWarning):
+            res2 = other + dti
+        tm.assert_series_equal(res2, expected_add)
+
+        expected_sub = Series([dti[n] - other[n] for n in range(len(dti))],
+                              name=names[2])
+
+        with tm.assert_produces_warning(PerformanceWarning):
+            res3 = dti - other
+        tm.assert_series_equal(res3, expected_sub)
 
 
 # GH 10699

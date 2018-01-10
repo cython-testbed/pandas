@@ -217,8 +217,8 @@ class _NDFrameIndexer(_NDFrameIndexerBase):
         return True
 
     def _is_nested_tuple_indexer(self, tup):
-        if any([isinstance(ax, MultiIndex) for ax in self.obj.axes]):
-            return any([is_nested_tuple(tup, ax) for ax in self.obj.axes])
+        if any(isinstance(ax, MultiIndex) for ax in self.obj.axes):
+            return any(is_nested_tuple(tup, ax) for ax in self.obj.axes)
         return False
 
     def _convert_tuple(self, key, is_setter=False):
@@ -342,7 +342,7 @@ class _NDFrameIndexer(_NDFrameIndexerBase):
                             len(_ax) for _i, _ax in enumerate(self.obj.axes)
                             if _i != i
                         ]
-                        if any([not l for l in len_non_info_axes]):
+                        if any(not l for l in len_non_info_axes):
                             if not is_list_like_indexer(value):
                                 raise ValueError("cannot set a frame with no "
                                                  "defined index and a scalar")
@@ -366,7 +366,7 @@ class _NDFrameIndexer(_NDFrameIndexerBase):
                     labels = index.insert(len(index), key)
                     self.obj._data = self.obj.reindex(labels, axis=i)._data
                     self.obj._maybe_update_cacher(clear=True)
-                    self.obj.is_copy = None
+                    self.obj._is_copy = None
 
                     nindexer.append(labels.get_loc(key))
 
@@ -405,7 +405,8 @@ class _NDFrameIndexer(_NDFrameIndexerBase):
                             new_values = np.concatenate([self.obj._values,
                                                          new_values])
                         except TypeError:
-                            new_values = np.concatenate([self.obj.asobject,
+                            as_obj = self.obj.astype(object)
+                            new_values = np.concatenate([as_obj,
                                                          new_values])
                     self.obj._data = self.obj._constructor(
                         new_values, index=new_index, name=self.obj.name)._data
@@ -690,7 +691,7 @@ class _NDFrameIndexer(_NDFrameIndexerBase):
             # we have a frame, with multiple indexers on both axes; and a
             # series, so need to broadcast (see GH5206)
             if (sum_aligners == self.ndim and
-                    all([is_sequence(_) for _ in indexer])):
+                    all(is_sequence(_) for _ in indexer)):
                 ser = ser.reindex(obj.axes[0][indexer[0]], copy=True)._values
 
                 # single indexer
@@ -1307,7 +1308,7 @@ class _IXIndexer(_NDFrameIndexer):
     ``.ix`` is the most general indexer and will support any of the
     inputs in ``.loc`` and ``.iloc``. ``.ix`` also supports floating
     point label schemes. ``.ix`` is exceptionally useful when dealing
-    with mixed positional and label based hierachical indexes.
+    with mixed positional and label based hierarchical indexes.
 
     However, when an axis is integer based, ONLY label based access
     and not positional access is supported. Thus, in such cases, it's
@@ -1440,8 +1441,8 @@ class _LocIndexer(_LocationIndexer):
         ax = self.obj._get_axis(axis)
 
         # valid for a label where all labels are in the index
-        # slice of lables (where start-end in labels)
-        # slice of integers (only if in the lables)
+        # slice of labels (where start-end in labels)
+        # slice of integers (only if in the labels)
         # boolean
 
         if isinstance(key, slice):
@@ -1478,7 +1479,7 @@ class _LocIndexer(_LocationIndexer):
                         KeyError in the future, you can use .reindex() as an alternative.
 
                         See the documentation here:
-                        http://pandas.pydata.org/pandas-docs/stable/indexing.html#deprecate-loc-reindex-listlike""")  # noqa
+                        https://pandas.pydata.org/pandas-docs/stable/indexing.html#deprecate-loc-reindex-listlike""")  # noqa
 
                         if not (ax.is_categorical() or ax.is_interval()):
                             warnings.warn(_missing_key_warning,
@@ -1842,8 +1843,8 @@ class _iLocIndexer(_LocationIndexer):
         elif self._has_valid_type(obj, axis):
             return obj
 
-        raise ValueError("Can only index by location with a [%s]" %
-                         self._valid_types)
+        raise ValueError("Can only index by location with "
+                         "a [{types}]".format(types=self._valid_types))
 
 
 class _ScalarAccessIndexer(_NDFrameIndexer):
@@ -1928,7 +1929,7 @@ class _iAtIndexer(_ScalarAccessIndexer):
         self._has_valid_positional_setitem_indexer(indexer)
 
     def _convert_key(self, key, is_setter=False):
-        """ require  integer args (and convert to label arguments) """
+        """ require integer args (and convert to label arguments) """
         for a, i in zip(self.obj.axes, key):
             if not is_integer(i):
                 raise ValueError("iAt based indexing can only have integer "
@@ -2055,7 +2056,7 @@ def convert_from_missing_indexer_tuple(indexer, axes):
         return (axes[_i].get_loc(_idx['key']) if isinstance(_idx, dict) else
                 _idx)
 
-    return tuple([get_indexer(_i, _idx) for _i, _idx in enumerate(indexer)])
+    return tuple(get_indexer(_i, _idx) for _i, _idx in enumerate(indexer))
 
 
 def maybe_convert_indices(indices, n):
@@ -2117,7 +2118,7 @@ def maybe_convert_ix(*args):
 
 
 def is_nested_tuple(tup, labels):
-    # check for a compatiable nested tuple and multiindexes among the axes
+    # check for a compatible nested tuple and multiindexes among the axes
     if not isinstance(tup, tuple):
         return False
 

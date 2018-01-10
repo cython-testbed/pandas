@@ -1,17 +1,19 @@
 """ implement the TimedeltaIndex """
 
 from datetime import timedelta
+import warnings
+
 import numpy as np
 from pandas.core.dtypes.common import (
     _TD_DTYPE,
-    is_integer, is_float,
+    is_integer,
+    is_float,
     is_bool_dtype,
     is_list_like,
     is_scalar,
-    is_integer_dtype,
-    is_object_dtype,
     is_timedelta64_dtype,
     is_timedelta64_ns_dtype,
+    pandas_dtype,
     _ensure_int64)
 from pandas.core.dtypes.missing import isna
 from pandas.core.dtypes.generic import ABCSeries
@@ -52,7 +54,7 @@ def _field_accessor(name, alias, docstring=None):
     return property(f)
 
 
-def _td_index_cmp(opname, nat_result=False):
+def _td_index_cmp(opname, cls, nat_result=False):
     """
     Wrap comparison operations to convert timedelta-like to timedelta64
     """
@@ -93,7 +95,7 @@ def _td_index_cmp(opname, nat_result=False):
             return result
         return Index(result)
 
-    return wrapper
+    return compat.set_function_name(wrapper, opname, cls)
 
 
 class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
@@ -137,6 +139,24 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
     Timedelta : Represents a duration between two dates or times.
     DatetimeIndex : Index of datetime64 data
     PeriodIndex : Index of Period data
+
+    Attributes
+    ----------
+    days
+    seconds
+    microseconds
+    nanoseconds
+    components
+    inferred_freq
+
+    Methods
+    -------
+    to_pytimedelta
+    to_series
+    round
+    floor
+    ceil
+    to_frame
     """
 
     _typ = 'timedeltaindex'
@@ -162,12 +182,15 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
     _datetimelike_methods = ["to_pytimedelta", "total_seconds",
                              "round", "floor", "ceil"]
 
-    __eq__ = _td_index_cmp('__eq__')
-    __ne__ = _td_index_cmp('__ne__', nat_result=True)
-    __lt__ = _td_index_cmp('__lt__')
-    __gt__ = _td_index_cmp('__gt__')
-    __le__ = _td_index_cmp('__le__')
-    __ge__ = _td_index_cmp('__ge__')
+    @classmethod
+    def _add_comparison_methods(cls):
+        """ add in comparison methods """
+        cls.__eq__ = _td_index_cmp('__eq__', cls)
+        cls.__ne__ = _td_index_cmp('__ne__', cls, nat_result=True)
+        cls.__lt__ = _td_index_cmp('__lt__', cls)
+        cls.__gt__ = _td_index_cmp('__gt__', cls)
+        cls.__le__ = _td_index_cmp('__le__', cls)
+        cls.__ge__ = _td_index_cmp('__ge__', cls)
 
     _engine_type = libindex.TimedeltaEngine
 
@@ -343,13 +366,16 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
             # update name when delta is index
             name = com._maybe_match_name(self, delta)
         else:
-            raise ValueError("cannot add the type {0} to a TimedeltaIndex"
-                             .format(type(delta)))
+            raise TypeError("cannot add the type {0} to a TimedeltaIndex"
+                            .format(type(delta)))
 
         result = TimedeltaIndex(new_values, freq='infer', name=name)
         return result
 
-    def _evaluate_with_timedelta_like(self, other, op, opstr):
+    def _evaluate_with_timedelta_like(self, other, op, opstr, reversed=False):
+        if isinstance(other, ABCSeries):
+            # GH#19042
+            return NotImplemented
 
         # allow division by a timedelta
         if opstr in ['__div__', '__truediv__', '__floordiv__']:
@@ -360,10 +386,14 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
                         "division by pd.NaT not implemented")
 
                 i8 = self.asi8
+                left, right = i8, other.value
+                if reversed:
+                    left, right = right, left
+
                 if opstr in ['__floordiv__']:
-                    result = i8 // other.value
+                    result = left // right
                 else:
-                    result = op(i8, float(other.value))
+                    result = op(left, float(right))
                 result = self._maybe_mask_results(result, convert='float64')
                 return Index(result, name=self.name, copy=False)
 
@@ -389,6 +419,47 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
         else:
             raise TypeError("cannot subtract a datelike from a TimedeltaIndex")
         return DatetimeIndex(result, name=self.name, copy=False)
+
+    def _add_offset_array(self, other):
+        # Array/Index of DateOffset objects
+        try:
+            # TimedeltaIndex can only operate with a subset of DateOffset
+            # subclasses.  Incompatible classes will raise AttributeError,
+            # which we re-raise as TypeError
+            if isinstance(other, ABCSeries):
+                return NotImplemented
+            elif len(other) == 1:
+                return self + other[0]
+            else:
+                from pandas.errors import PerformanceWarning
+                warnings.warn("Adding/subtracting array of DateOffsets to "
+                              "{} not vectorized".format(type(self)),
+                              PerformanceWarning)
+                return self.astype('O') + np.array(other)
+                # TODO: This works for __add__ but loses dtype in __sub__
+        except AttributeError:
+            raise TypeError("Cannot add non-tick DateOffset to TimedeltaIndex")
+
+    def _sub_offset_array(self, other):
+        # Array/Index of DateOffset objects
+        try:
+            # TimedeltaIndex can only operate with a subset of DateOffset
+            # subclasses.  Incompatible classes will raise AttributeError,
+            # which we re-raise as TypeError
+            if isinstance(other, ABCSeries):
+                return NotImplemented
+            elif len(other) == 1:
+                return self - other[0]
+            else:
+                from pandas.errors import PerformanceWarning
+                warnings.warn("Adding/subtracting array of DateOffsets to "
+                              "{} not vectorized".format(type(self)),
+                              PerformanceWarning)
+                res_values = self.astype('O').values - np.array(other)
+                return self.__class__(res_values, freq='infer')
+        except AttributeError:
+            raise TypeError("Cannot subtrack non-tick DateOffset from"
+                            " TimedeltaIndex")
 
     def _format_native_types(self, na_rep=u('NaT'),
                              date_format=None, **kwargs):
@@ -458,26 +529,15 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
 
     @Appender(_index_shared_docs['astype'])
     def astype(self, dtype, copy=True):
-        dtype = np.dtype(dtype)
-
-        if is_object_dtype(dtype):
-            return self.asobject
-        elif is_timedelta64_ns_dtype(dtype):
-            if copy is True:
-                return self.copy()
-            return self
-        elif is_timedelta64_dtype(dtype):
+        dtype = pandas_dtype(dtype)
+        if is_timedelta64_dtype(dtype) and not is_timedelta64_ns_dtype(dtype):
             # return an index (essentially this is division)
             result = self.values.astype(dtype, copy=copy)
             if self.hasnans:
-                return Index(self._maybe_mask_results(result,
-                                                      convert='float64'),
-                             name=self.name)
+                values = self._maybe_mask_results(result, convert='float64')
+                return Index(values, name=self.name)
             return Index(result.astype('i8'), name=self.name)
-        elif is_integer_dtype(dtype):
-            return Index(self.values.astype('i8', copy=copy), dtype='i8',
-                         name=self.name)
-        raise ValueError('Cannot cast TimedeltaIndex to dtype %s' % dtype)
+        return super(TimedeltaIndex, self).astype(dtype, copy=copy)
 
     def union(self, other):
         """
@@ -831,16 +891,18 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
         -------
         new_index : Index
         """
-
         # try to convert if possible
         if _is_convertible_to_td(item):
             try:
                 item = Timedelta(item)
             except Exception:
                 pass
+        elif is_scalar(item) and isna(item):
+            # GH 18295
+            item = self._na_value
 
         freq = None
-        if isinstance(item, Timedelta) or item is NaT:
+        if isinstance(item, Timedelta) or (is_scalar(item) and isna(item)):
 
             # check freq can be preserved on edge cases
             if self.freq is not None:
@@ -860,7 +922,7 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
 
             # fall back to object index
             if isinstance(item, compat.string_types):
-                return self.asobject.insert(loc, item)
+                return self.astype(object).insert(loc, item)
             raise TypeError(
                 "cannot insert TimedeltaIndex with incompatible label")
 
@@ -894,6 +956,7 @@ class TimedeltaIndex(DatetimeIndexOpsMixin, TimelikeOps, Int64Index):
         return TimedeltaIndex(new_tds, name=self.name, freq=freq)
 
 
+TimedeltaIndex._add_comparison_methods()
 TimedeltaIndex._add_numeric_methods()
 TimedeltaIndex._add_logical_methods_disabled()
 TimedeltaIndex._add_datetimelike_methods()
@@ -913,6 +976,7 @@ def _is_convertible_to_index(other):
 
 
 def _is_convertible_to_td(key):
+    # TODO: Not all DateOffset objects are convertible to Timedelta
     return isinstance(key, (DateOffset, timedelta, Timedelta,
                             np.timedelta64, compat.string_types))
 

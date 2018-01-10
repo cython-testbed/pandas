@@ -263,7 +263,7 @@ class _HtmlFrameParser(object):
 
         attrs : dict
             A dictionary of table attributes that can be used to disambiguate
-            mutliple tables on a page.
+            multiple tables on a page.
 
         Raises
         ------
@@ -359,7 +359,7 @@ class _HtmlFrameParser(object):
             trs = self._parse_tr(thead[0])
             for tr in trs:
                 cols = lmap(self._text_getter, self._parse_td(tr))
-                if any([col != '' for col in cols]):
+                if any(col != '' for col in cols):
                     res.append(cols)
         return res
 
@@ -606,7 +606,7 @@ class _LxmlFrameParser(_HtmlFrameParser):
             for tr in trs:
                 cols = [_remove_whitespace(x.text_content()) for x in
                         self._parse_td(tr)]
-                if any([col != '' for col in cols]):
+                if any(col != '' for col in cols):
                     res.append(cols)
         return res
 
@@ -684,7 +684,7 @@ def _parser_dispatch(flavor):
             raise ImportError(
                 "BeautifulSoup4 (bs4) not found, please install it")
         import bs4
-        if bs4.__version__ == LooseVersion('4.2.0'):
+        if LooseVersion(bs4.__version__) == LooseVersion('4.2.0'):
             raise ValueError("You're using a version"
                              " of BeautifulSoup4 (4.2.0) that has been"
                              " known to cause problems on certain"
@@ -699,7 +699,7 @@ def _parser_dispatch(flavor):
 
 
 def _print_as_set(s):
-    return '{{arg}}'.format(arg=', '.join([pprint_thing(el) for el in s]))
+    return '{{arg}}'.format(arg=', '.join(pprint_thing(el) for el in s))
 
 
 def _validate_flavor(flavor):
