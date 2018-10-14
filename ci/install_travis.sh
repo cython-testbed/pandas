@@ -101,7 +101,7 @@ echo "[running setup.py develop]"
 python setup.py develop  || exit 1
 
 pip uninstall --yes cython
-pip install https://github.com/cython/cython/archive/c9eda12b4806fba3931f7b791be7a672c92d9ca0.zip --install-option=--no-cython-compile
+pip install https://github.com/cython/cython/archive/443369fc35ac35525eb4241548cad79d0c94f8dc.zip --install-option=--no-cython-compile
 
 echo
 echo "[show environment]"
